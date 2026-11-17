@@ -42,7 +42,9 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   const reversalColumns = new Map(Object.entries(initialReversalColumns || {}))
   const feeColumns = new Map(initialDoctorFee ? [['doctor_fee_percentage', initialDoctorFee]] : [])
   const statutoryColumns = new Map(initialStatutoryCategory ? [['statutory_category',initialStatutoryCategory]] : [])
+  const calendarColumns = new Map()
   const reversalMetadata = (sql, params) => {
+    if (/information_schema\.COLUMNS/i.test(sql) && ['consultations','consultation_followups','consultation_followup_revisions','appointment_followup_links'].includes(params?.[0])) return [calendarColumns.has(params[0]+'.'+params[1]) ? [calendarColumns.get(params[0]+'.'+params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'discount_presets' && params[1] === 'statutory_category') return [statutoryColumns.has(params[1]) ? [statutoryColumns.get(params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'billing_service_catalog' && params[1] === 'doctor_fee_percentage') return [feeColumns.has(params[1]) ? [feeColumns.get(params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && ['inventory_excel_uploads','inventory_excel_receipts'].includes(params?.[0])) {const row=actorColumns.get(params[0]+'.'+params[1]);return [row?[row]:[]]}
@@ -127,6 +129,8 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
           assert.equal(statutoryColumns.size,0,'Never re-add the existing category column')
           statutoryColumns.set('statutory_category',{COLUMN_TYPE:'varchar(12)',IS_NULLABLE:'NO',COLUMN_DEFAULT:'other'})
         }
+        const calendarDdl = /^ALTER TABLE (consultations|consultation_followups|consultation_followup_revisions|appointment_followup_links) ADD COLUMN (billable_services_json|dates_json|return_date) (JSON|DATE) NULL$/i.exec(sql)
+        if(calendarDdl){const key=calendarDdl[1]+'.'+calendarDdl[2];assert.equal(calendarColumns.has(key),false);calendarColumns.set(key,{DATA_TYPE:calendarDdl[3].toLowerCase(),IS_NULLABLE:'YES'})}
         const actorDdl = /^ALTER TABLE (inventory_excel_uploads|inventory_excel_receipts) (?:ADD|MODIFY) COLUMN ([a-z_]+) INT NULL$/i.exec(sql)
         if(actorDdl)actorColumns.set(actorDdl[1]+'.'+actorDdl[2],{COLUMN_TYPE:'int',IS_NULLABLE:'YES'})
         const movementColumn = /^ALTER TABLE inventory_logs ADD COLUMN (quantity_before|quantity_after) DECIMAL\(12,2\) NULL$/i.exec(sql)
@@ -169,10 +173,10 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-  assert.deepEqual(migrationFiles.slice(-4),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql','2026-11-14-simplify-tax-settings.sql'])
+  assert.deepEqual(migrationFiles.slice(-5),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql','2026-11-14-simplify-tax-settings.sql','2026-11-17-consultation-followup-calendar.sql'])
   const historicalTail = ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql']
   assert.deepEqual(migrationFiles.filter(file => historicalTail.includes(file)), historicalTail)
-  const historicalFiles=migrationFiles.filter(file=>!file.startsWith('2026-11-14-'))
+  const historicalFiles=migrationFiles.filter(file=>file<'2026-11-14-')
   assert.equal(historicalFiles.at(-5), '2026-11-12-daily-stock-alerts.sql')
   assert.equal(historicalFiles.at(-4), '2026-11-12-queue-daily-department-numbers.sql')
   assert.equal(historicalFiles.at(-3), '2026-11-13-inventory-movement-balances.sql')
@@ -192,6 +196,17 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     assert.ok(acceptedContentHashes(sql).has(expected), `${file} changed; create a new migration instead of editing history`)
   }
+})
+
+test('calendar migration resumes partial DDL and preserves the date of existing follow-up bookings', async () => {
+  const db=createMockDb({failOnceOn:'ALTER TABLE consultation_followups ADD COLUMN dates_json'})
+  await assert.rejects(runBranchMigrations(db),/synthetic migration DDL failure/)
+  assert.equal(db.applied.has('2026-11-17-consultation-followup-calendar.sql'),false)
+  await runBranchMigrations(db)
+  await runBranchMigrations(db)
+  assert.equal(db.commands.filter(sql=>sql==='ALTER TABLE consultations ADD COLUMN billable_services_json JSON NULL').length,1)
+  assert.equal(db.commands.filter(sql=>sql.startsWith('UPDATE appointment_followup_links l')).length,1)
+  assert.equal(db.applied.has('2026-11-17-consultation-followup-calendar.sql'),true)
 })
 
 test('manually added reversal columns are verified without repeated ALTER or migration-history deletion', async () => {

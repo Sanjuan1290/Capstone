@@ -10,8 +10,8 @@ const toCents = (value) => {
 export function calculatePaymentPreview({ bill, draft }) {
   const balance = toCents(bill?.balance_amount)
   const payment = toCents(draft?.payment_amount)
-  if (balance === null || payment === null || payment < 1 || balance < 1 || payment > balance) {
-    return { valid: false, message: 'Enter a valid payment amount within the outstanding balance.' }
+  if (balance === null || payment === null || payment < 1 || balance < 1 || payment !== balance) {
+    return { valid: false, message: 'Payment must cover the full bill amount.' }
   }
   const cash = draft?.payment_method === 'cash'
   const tendered = cash ? toCents(draft?.amount_received) : null
@@ -28,6 +28,6 @@ export function calculatePaymentPreview({ bill, draft }) {
   }
 }
 
-// Full balance by default; an explicit partial payment preserves its own transaction amount.
+// Checkout always collects the full amount due.
 export const calculateBalancePaymentPreview = ({ bill, draft }) =>
-  calculatePaymentPreview({ bill, draft: { ...draft, payment_amount: draft?.partial_payment ? draft.payment_amount : bill?.balance_amount } })
+  calculatePaymentPreview({ bill, draft: { ...draft, payment_amount: bill?.balance_amount } })

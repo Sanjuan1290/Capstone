@@ -25,6 +25,16 @@ test('CSV export respects current section and rejects spreadsheet formulas',()=>
  assert.match(csv,/"'=DANGER"/)
  assert.doesNotMatch(csv,/Net Billed/)
 })
+
+test('report exports keep collection totals and omit outstanding balance metrics from existing API responses',()=>{
+ const report={totals:{net_collected:500,outstanding:75,outstanding_balance:75},revenue_trend:[]}
+ const csv=sectionCsv('overview',report)
+ assert.match(csv,/Net Collected/)
+ assert.doesNotMatch(csv,/Outstanding/)
+ const financial=sectionCsv('financial',{billing:{gross_billed:1000},collections:{net_collected:500},outstanding:75})
+ assert.match(financial,/Gross Billed/)
+ assert.doesNotMatch(financial,/Outstanding/)
+})
 test('Excel workbook includes every section and scoping without patient details',async()=>{
  const sheets=reportWorkbookSheets(blank,{branchName:'Laguna Clinic Branch',from:'2026-11-01',to:'2026-11-05'})
  assert.equal(sheets.length,12)

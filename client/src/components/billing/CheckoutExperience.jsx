@@ -38,17 +38,16 @@ export function CheckoutStatus({ bill, dirty, saving, finalizing, paying, qrPend
   </div>
 }
 
-export function CheckoutOverview({ bill, totals, dirty, formatMoney }) {
-  const { draft: pending, total, paid, balance } = checkoutOverviewValues({ bill, totals })
+export function CheckoutOverview({ bill, totals, formatMoney }) {
+  const { draft: pending, total, paid } = checkoutOverviewValues({ bill, totals })
   const cards = [
     { label: pending ? 'Draft total (preview)' : 'Confirmed bill', value: total, note: pending ? 'Not final until saved and confirmed' : 'Based on saved bill' },
     { label: 'Payments received', value: paid, note: 'Recorded payments only' },
-    { label: 'Remaining balance', value: balance, note: pending && dirty ? 'Unsaved estimate' : pending ? 'Before payment' : 'To collect' },
   ]
-  return <section aria-label="Checkout amount overview" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-    {cards.map((card, i) => <div key={card.label} className={`rounded-2xl border bg-white px-4 py-4 shadow-sm ${i === 2 ? 'border-sky-200' : 'border-slate-200'}`}>
+  return <section aria-label="Checkout amount overview" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    {cards.map((card, i) => <div key={card.label} className={`rounded-2xl border bg-white px-4 py-4 shadow-sm ${i === 0 ? 'border-sky-200' : 'border-slate-200'}`}>
       <p className="text-xs font-semibold text-slate-500">{card.label}</p>
-      <p className={`mt-1 text-xl font-black tabular-nums sm:text-2xl ${i === 2 ? 'text-sky-800' : 'text-slate-900'}`}>{formatMoney(card.value || 0)}</p>
+      <p className={`mt-1 text-xl font-black tabular-nums sm:text-2xl ${i === 0 ? 'text-sky-800' : 'text-slate-900'}`}>{formatMoney(card.value || 0)}</p>
       <p className="mt-1 text-xs text-slate-500">{card.note}</p>
     </div>)}
   </section>

@@ -13,7 +13,6 @@ import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
 const TABS = [
   { value: 'ready', label: 'Ready for Payment', countKey: 'ready' },
   { value: 'draft,pending', label: 'Check Bill First', countKey: 'draft' },
-  { value: 'partially_paid', label: 'Remaining Balances', countKey: 'partially_paid' },
 ]
 
 const Admin_Checkout = ({ embedded = false }) => {

@@ -304,14 +304,13 @@ const Admin_Reports = () => {
         <div class="card"><div class="label">Appointments</div><div class="value">${report.totalAppointments}</div></div>
         <div class="card"><div class="label">Unique Patients</div><div class="value">${Number(report.appointmentSummary.unique_patients || 0)}</div></div>
         <div class="card"><div class="label">Net Collections</div><div class="value">${escapeHtml(formatMoney(report.billing.net_collected))}</div></div>
-        <div class="card"><div class="label">Outstanding Now</div><div class="value">${escapeHtml(formatMoney(report.billing.outstanding))}</div></div>
       </div>
       <h2>2. Financial Summary</h2><table><tbody>
         <tr><th>Gross Billed</th><td>${escapeHtml(formatMoney(report.billing.gross_billed))}</td><th>Discounts</th><td>${escapeHtml(formatMoney(report.billing.discounts))}</td></tr>
         <tr><th>Net Billed</th><td>${escapeHtml(formatMoney(report.billing.net_billed))}</td><th>Collections</th><td>${escapeHtml(formatMoney(report.billing.collected))}</td></tr>
         <tr><th>Refunded</th><td>${escapeHtml(formatMoney(report.billing.refunded))}</td><th>Net Collections</th><td>${escapeHtml(formatMoney(report.billing.net_collected))}</td></tr>
         <tr><th>Voided Payments</th><td>${escapeHtml(formatMoney(report.billing.voided_payments))}</td><th>Gross Received</th><td>${escapeHtml(formatMoney(report.billing.gross_received))}</td></tr>
-        <tr><th>Outstanding Now</th><td>${escapeHtml(formatMoney(report.billing.outstanding))}</td><th>Voided Bills</th><td>${escapeHtml(report.billing.voided_bills || 0)}</td></tr>
+        <tr><th>Voided Bills</th><td colspan="3">${escapeHtml(report.billing.voided_bills || 0)}</td></tr>
       </tbody></table>
       <h2>3. Collection Trend</h2><table><thead><tr><th>Month</th><th>Transactions</th><th>Net Collection</th></tr></thead><tbody>${revenueRows || '<tr><td colspan="3">No collections.</td></tr>'}</tbody></table>
       <h2>4. Appointment Summary</h2><table><thead><tr><th>Month</th><th>Appointments</th><th>Medical</th><th>Dermatology</th><th>Patients</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">No appointments.</td></tr>'}</tbody></table>
@@ -377,11 +376,10 @@ const Admin_Reports = () => {
 
       <div>
         <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400">Selected Period · Financial</p>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Gross Billed" value={formatMoney(report.billing.gross_billed)} helper={`${report.billing.paid_bills || 0} paid · ${report.billing.partially_paid_bills || 0} partial`} icon={MdPayments} tone="border-sky-200 bg-sky-50 text-sky-800" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard label="Gross Billed" value={formatMoney(report.billing.gross_billed)} helper={`${report.billing.paid_bills || 0} paid bills`} icon={MdPayments} tone="border-sky-200 bg-sky-50 text-sky-800" />
           <StatCard label="Net Billed" value={formatMoney(report.billing.net_billed)} helper={`${formatMoney(report.billing.discounts)} discounts`} icon={MdChecklist} tone="border-violet-200 bg-violet-50 text-violet-800" />
           <StatCard label="Net Collections" value={formatMoney(report.billing.net_collected)} helper={`${formatMoney(report.billing.refunded)} refunded · ${formatMoney(report.billing.voided_payments)} voided`} icon={MdTrendingUp} tone="border-emerald-200 bg-emerald-50 text-emerald-800" />
-          <StatCard label="Outstanding Now" value={formatMoney(report.billing.outstanding)} helper="Current unpaid balance across open bills" icon={MdWarningAmber} tone="border-amber-200 bg-amber-50 text-amber-800" />
         </div>
       </div>
 
@@ -410,7 +408,7 @@ const Admin_Reports = () => {
 
       <div>
         <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400">Selected Period · Clinic Operations</p>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Appointments" value={report.totalAppointments} helper={`${report.appointmentSummary.unique_patients || 0} unique patients`} icon={MdCalendarToday} />
           <StatCard label="Completion Rate" value={formatPercent(report.completionRate)} helper={`${report.completed} completed`} icon={MdChecklist} />
           <StatCard label="Cancelled / No-show" value={report.cancelled + report.noShow} helper={`${report.cancelled} cancelled · ${report.noShow} no-show`} icon={MdWarningAmber} />

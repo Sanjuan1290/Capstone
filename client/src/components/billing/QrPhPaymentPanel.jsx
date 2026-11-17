@@ -64,7 +64,7 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, branchEnabl
   return (
     <section className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-4" aria-label="PayMongo QR Ph Payment">
       <div className="flex items-center gap-2 text-violet-900"><MdQrCode2 className="text-2xl" /><h3 className="font-black">QR Ph · PayMongo {!modeKnown ? 'Checking mode…' : displayedMode === 'live' ? 'LIVE Mode' : 'TEST Mode'}</h3></div>
-      <p className="mt-2 text-sm text-slate-600">Generate a unique QR only after confirming this bill. Exact remaining balance: <strong>₱{Number(remainingBalance || 0).toFixed(2)}</strong>.</p>
+      <p className="mt-2 text-sm text-slate-600">Generate a unique QR only after confirming this bill. Payment amount: <strong>₱{Number(remainingBalance || 0).toFixed(2)}</strong>.</p>
       {modeKnown && (displayedMode === 'test' ? <p className="mt-2 text-xs font-bold text-rose-700">TEST QR: do not scan or send real money. Use PayMongo's test payment simulator URL when available.</p> : <p className="mt-2 text-xs font-bold text-rose-700">LIVE QR: scanning and paying this code will move real money and may incur processing fees.</p>)}
       {collectionDisabled && <p role="alert" className="mt-2 text-sm font-bold text-amber-900">New QR Ph payments are disabled or unavailable for this branch.{alternatePaymentBlocked ? ' An existing QR must be reconciled or safely cancelled before collecting another payment.' : ''}</p>}
       {!pending && attempt?.status !== 'succeeded' && <button type="button" className="button-primary mt-4" disabled={busy || !modeKnown || collectionDisabled || Number(remainingBalance) < 1} onClick={generate}><MdQrCode2 />{busy ? 'Generating…' : `Generate ${mode === 'live' ? 'LIVE' : 'Test'} QR Ph`}</button>}
@@ -85,7 +85,7 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, branchEnabl
       {alternatePaymentBlocked && !attempt?.can_request_cancel && <p role="alert" className="mt-3 text-sm font-bold text-amber-800">The QR payment is still locked. Ask an administrator to check the PayMongo status before accepting cash.</p>}
       {attempt?.status === 'cancelled' && <p role="status" className="mt-3 text-sm font-bold text-emerald-800">QR payment safely cancelled. Cash payment is now available.</p>}
       {attempt?.status === 'succeeded' && <p role="status" className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-700"><MdCheckCircleOutline /> Verified payment recorded. Receipt is available on the updated bill.</p>}
-      {['expired','failed'].includes(attempt?.status) && <p className="mt-3 text-sm font-bold text-amber-800">Previous QR expired or failed. You may generate another QR for the outstanding balance.</p>}
+      {['expired','failed'].includes(attempt?.status) && <p className="mt-3 text-sm font-bold text-amber-800">Previous QR expired or failed. You may generate another QR for the bill amount.</p>}
       {error && <p role="alert" className="mt-3 text-sm font-bold text-rose-700">{error}</p>}
     </section>
   )

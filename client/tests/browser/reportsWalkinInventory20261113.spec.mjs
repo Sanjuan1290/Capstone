@@ -31,7 +31,7 @@ test('all five Super Admin report sections display SQL-derived data and retain f
  await report.getByRole('button',{name:'Financial',exact:true}).click()
  await expect(report.getByText('Gross Billed',{exact:true}).locator('xpath=ancestor::*[contains(@class,"border")][1]')).toContainText('₱1,300.00')
  await expect(report.getByText('Net Collections',{exact:true}).locator('xpath=ancestor::*[contains(@class,"border")][1]')).toContainText('₱100.00')
- await expect(report.getByText('Outstanding',{exact:true}).locator('xpath=ancestor::*[contains(@class,"border")][1]')).toContainText('₱200.00')
+ await expect(report.getByText('Outstanding',{exact:true})).toHaveCount(0)
  await report.getByRole('button',{name:'Doctors & Services',exact:true}).click()
  await expect(report.getByRole('cell',{name:'Doctor 2',exact:true})).toBeVisible()
  await report.getByRole('button',{name:'Inventory',exact:true}).click()

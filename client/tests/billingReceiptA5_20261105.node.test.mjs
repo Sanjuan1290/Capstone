@@ -37,11 +37,10 @@ test('hides n/a fields, escapes untrusted values, no duplicates',()=>{
   assert.ok(!s.includes('<script>'))
   assert.ok(!s.includes('>n/a<'))
 })
-test('partial payment identifies the amount received and the outstanding balance',()=>{
+test('historical receipts retain actual payment amounts without balance or partial-payment displays',()=>{
   const s=html({...baseBill,paid_amount:100,balance_amount:372},{...payment,amount:100})
-  assert.match(s,/PARTIAL PAYMENT/)
-  assert.match(s,/Remaining balance/)
-  assert.match(s,/₱372.00/)
+  assert.match(s,/PAYMENT RECEIPT/)
+  assert.doesNotMatch(s,/Remaining balance|PARTIAL PAYMENT|₱372.00/)
   assert.match(s,/Amount Paid/)
   assert.match(s,/₱100.00/)
 })

@@ -35,7 +35,7 @@ test('checkout status prioritizes conflicts, busy operations and unsaved edits',
 
 test('payment statuses describe only server-confirmed states', () => {
  assert.match(checkoutNotice({bill:{status:'ready'}}).title,/ready for payment/)
- assert.match(checkoutNotice({bill:{status:'partially_paid'}}).title,/Partial payment/)
+ assert.match(checkoutNotice({bill:{status:'partially_paid'}}).title,/ready for payment/)
  assert.match(checkoutNotice({bill:{status:'paid'}}).title,/Payment complete/)
  assert.equal(checkoutNotice({bill:{status:'voided'}}).tone,'slate')
  assert.equal(checkoutNotice({bill:{status:'draft'}}).kind,'info')

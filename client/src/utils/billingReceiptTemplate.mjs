@@ -44,7 +44,7 @@ const receiptState = (bill,payment) => {
   if (refund > 0 && refund + 0.001 >= amount) return {label:'REFUNDED',klass:'refund'}
   if (refund > 0) return {label:'PARTIALLY REFUNDED',klass:'refund'}
   if (status && status !== 'completed') return {label:status.replace(/_/g,' ').toUpperCase(),klass:'muted'}
-  if (asNumber(bill?.balance_amount) > 0.009) return {label:'PARTIAL PAYMENT',klass:'partial'}
+  if (asNumber(bill?.balance_amount) > 0.009) return {label:'PAYMENT RECEIPT',klass:'muted'}
   return {label:'PAID',klass:'paid'}
 }
 
@@ -78,7 +78,6 @@ export function buildBillingReceiptHtml({bill,payment,clinicSettings={},logoUrl=
     refunded > 0 ? line('Net this payment', Math.max(0,originalPayment-refunded),'this-payment') : '',
     timeline.previous_paid > 0 ? line('Previous payments',timeline.previous_paid) : '',
     timeline.previous_paid > 0 || timeline.balance > 0 ? line('Total paid',timeline.paid_through) : '',
-    timeline.balance > 0 ? line('Remaining balance',timeline.balance) : '',
   ].join('')
   const savedFinancialLines = calculation ? [
     line('Base Subtotal',calculation.subtotal),

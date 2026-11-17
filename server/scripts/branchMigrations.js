@@ -10,6 +10,7 @@ const { runTiDBMigration, PROCEDURAL_FILES, normalizeHistoricalStatement } = req
 const { requiredFoundationColumns, verifyFoundationSchema, ensureFoundationRekeys } = require('./foundationSchema')
 const { MIGRATION_FILE: promotionMigrationFile, runSelectedPromotionMigration, verifyPromotionSchema } = require('./promotionMigration')
 const { runDoctorBranchMigration, runGuardedAdditiveMigration } = require('./resumableBranchMigrations')
+const { ensureConsultationCalendarColumns, runConsultationCalendarMigration } = require('./consultationCalendarMigration')
 
 // Handle mysql CLI DELIMITER directives (including stored-procedure bodies).
 // Statements execute serially on a single connection. A migration is recorded
@@ -77,6 +78,7 @@ const migrationFiles = [
   '2026-11-14-billing-financial-snapshots.sql',
   '2026-11-14-branch-tax-policy.sql',
   '2026-11-14-simplify-tax-settings.sql',
+  '2026-11-17-consultation-followup-calendar.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -165,6 +167,7 @@ async function runRegisteredBranchMigrations(db) {
       if (file === '2026-11-13-shared-operation-actors.sql') await ensureOperationalActorColumns(db)
       if (file === '2026-11-13-inventory-movement-balances.sql') await ensureInventoryActivityColumns(db)
       if (file === '2026-11-14-billing-financial-snapshots.sql') await ensureDoctorFeeColumn(db)
+      if (file === '2026-11-17-consultation-followup-calendar.sql') await ensureConsultationCalendarColumns(db)
       if (file === '2026-11-14-simplify-tax-settings.sql') {
         await ensureStatutoryCategoryColumn(db)
         await validateStoredTaxSettings(db,{simpleOnly:true})
@@ -176,7 +179,9 @@ async function runRegisteredBranchMigrations(db) {
     try {
       // MySQL DDL auto-commits; reruns are made safe by guarded, idempotent SQL.
       const statements = splitMysqlMigration(sql)
-      if(file==='2026-11-14-simplify-tax-settings.sql'){
+      if (file === '2026-11-17-consultation-followup-calendar.sql') {
+        await runConsultationCalendarMigration(connection, statements)
+      } else if(file==='2026-11-14-simplify-tax-settings.sql'){
         if(statements.length!==3||statements[0]!=="ALTER TABLE discount_presets ADD COLUMN statutory_category VARCHAR(12) NOT NULL DEFAULT 'other'"||!statements[1].startsWith('UPDATE discount_presets p\nJOIN branch_billing_settings')||!statements[2].startsWith('UPDATE branch_billing_settings\nSET policy_json=JSON_OBJECT('))throw new Error('Unexpected tax simplification migration statements')
         await validateStoredTaxSettings(connection)
         await ensureStatutoryCategoryColumn(connection,true)

@@ -46,21 +46,21 @@ for(const role of ['admin','superadmin','staff'])test(`${role}: saved calculatio
  expect(state.calls.filter(c=>c.method==='POST')).toHaveLength(0)
 })
 
-for(const role of ['admin','superadmin','staff'])test(`${role}: partial cash payment uses saved amount and disabled QR stays unavailable`,async({page})=>{
+for(const role of ['admin','superadmin','staff'])test(`${role}: full cash payment has no partial option and disabled QR stays unavailable`,async({page})=>{
  const {state,checkout}=await mockClinic(page,role,{bill:savedBill(),requests:false})
  await page.goto(checkout)
  await page.getByRole('button',{name:'Cash',exact:true}).click()
- await page.getByRole('checkbox',{name:/Record a partial payment/}).check()
- await page.getByRole('spinbutton',{name:/Current payment amount/i}).fill('100')
- await page.getByRole('spinbutton',{name:'Cash Received',exact:true}).fill('150')
+ await expect(page.getByRole('checkbox',{name:/Record a partial payment/})).toHaveCount(0)
+ await expect(page.getByRole('spinbutton',{name:/Current payment amount/i})).toHaveCount(0)
+ await page.getByRole('spinbutton',{name:'Cash Received',exact:true}).fill('500')
  await expect(page.getByRole('region',{name:'Saved bill calculation'})).toContainText('₱486.00')
  await expect(page.getByRole('button',{name:/Pay with QR|Open QR payment/i})).toHaveCount(0)
  await page.getByRole('button',{name:'Record Payment',exact:true}).click()
  await page.getByRole('button',{name:/Confirm Payment|Confirm and Record|Yes, Record/i}).click()
  await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/billing/6/pay')).length).toBe(1)
  const body=state.calls.find(c=>c.path.endsWith('/billing/6/pay')).body
- expect(Number(body.payment_amount)).toBe(100);expect(Number(body.amount_received)).toBe(150)
- expect(state.bill.balance_amount).toBe(386)
+ expect(Number(body.payment_amount)).toBe(486);expect(Number(body.amount_received)).toBe(500)
+ expect(state.bill.balance_amount).toBe(0)
 })
 
 for(const role of ['admin','superadmin','staff'])test(`${role}: service fee preview includes listed item and preserves patient price`,async({page})=>{
@@ -120,24 +120,58 @@ for(const role of ['admin','superadmin','staff'])test(`${role}: tax settings sho
  expect(saves).toHaveLength(1);expect(saves[0].body.expected_version).toBe(1);expect(saves[0].path).toContain(role==='superadmin'?'/1/':'/my/')
 })
 
-for(const finalized of [false,true])test(`doctor: ${finalized?'completed':'draft'} recommendation has only date and note, and never creates a booking`,async({page})=>{
+for(const finalized of [false,true])test(`doctor: ${finalized?'completed':'draft'} calendar saves multiple dates with independent notes, and never creates a booking`,async({page})=>{
+ await page.clock.setFixedTime(new Date('2026-11-17T02:00:00Z'))
  const {state}=await mockClinic(page,'doctor'),writes=[]
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname,method=route.request().method()
-  if(path.endsWith('/consultations/9'))return route.fulfill({json:{id:11,appointment_id:9,patient_id:4,patient_name:'Test Patient',status:finalized?'finalized':'draft',version:1,type:'medical',requested_service_id:77,requested_service_name_snapshot:'Wound Dressing',prescription:'[]',billing:state.bill,images:[]}})
+  if(path.endsWith('/consultations/9'))return route.fulfill({json:{id:11,appointment_id:9,patient_id:4,patient_name:'Test Patient',status:finalized?'finalized':'draft',version:1,type:'medical',requested_service_id:77,requested_service_name_snapshot:'Wound Dressing',prescription:'[]',billing:finalized?state.bill:null,billable_services:finalized?null:[{catalog_service_id:77,item_type:'service',service_name:'Wound Dressing',quantity:1,materials:[]}],images:[]}})
   if(path.endsWith('/consultations/9/follow-up')){writes.push(route.request().postDataJSON());return route.fulfill({json:{follow_up:{id:1,...writes.at(-1).follow_up,status:'active',version:1}}})}
-  if(method==='PUT'&&path.endsWith('/consultations/9/draft')){writes.push(route.request().postDataJSON());return route.fulfill({json:{consultation_version:2,billing:state.bill}})}
+  if(method==='PUT'&&path.endsWith('/consultations/9/draft')){writes.push(route.request().postDataJSON());return route.fulfill({json:{consultation_version:2,billing:null}})}
   return route.fallback()
  })
  await page.goto('/doctor/consultation?id=9')
  await page.getByRole('button',{name:'Add Recommended Follow-Up',exact:true}).click()
  const editor=page.getByRole('region',{name:'Recommended Follow-Up',exact:true})
- await expect(editor.locator('input,textarea')).toHaveCount(2)
- await editor.getByLabel('Recommended Return Date').fill('2026-11-20');await editor.getByLabel('Doctor’s Note').fill('Return for review.')
- if(finalized){await page.getByRole('button',{name:'Save Recommendation',exact:true}).click();await expect.poll(()=>writes.length).toBe(1);expect(writes[0]).toEqual({follow_up:{return_date:'2026-11-20',doctor_note:'Return for review.'},expected_version:0})}
- else{await expect.poll(()=>writes.some(w=>w.follow_up?.return_date==='2026-11-20'),{timeout:12000}).toBe(true)}
+ await editor.getByRole('button',{name:'November 20, 2026',exact:true}).click();await editor.getByLabel('Doctor’s Note').fill('Return for review.')
+ await editor.getByRole('button',{name:'Next month',exact:true}).click()
+ await editor.getByRole('button',{name:'December 1, 2026',exact:true}).click();await editor.getByLabel('Doctor’s Note').fill('Second follow-up.')
+ await editor.getByRole('button',{name:'November 20, 2026 · Note added',exact:true}).click()
+ await expect(editor.getByLabel('Doctor’s Note')).toHaveValue('Return for review.')
+ const dates=[{return_date:'2026-11-20',doctor_note:'Return for review.'},{return_date:'2026-12-01',doctor_note:'Second follow-up.'}]
+ if(finalized){await page.getByRole('button',{name:'Save Recommendation',exact:true}).click();await expect.poll(()=>writes.length).toBe(1);expect(writes[0]).toEqual({follow_up:{dates},expected_version:0})}
+ else{await expect.poll(()=>writes.some(w=>JSON.stringify(w.follow_up?.dates)===JSON.stringify(dates)),{timeout:12000}).toBe(true)}
+ await editor.screenshot({path:`../QA_REPORT/followup-calendar-2026-11-17/${finalized?'completed':'draft'}-calendar.png`})
+ if(finalized){
+  await page.setViewportSize({width:390,height:844})
+  await expect.poll(async()=>{const box=await page.locator('aside').first().boundingBox();return box.x+box.width}).toBeLessThanOrEqual(1)
+  await expect(editor.getByLabel('Doctor’s Note')).toHaveValue('Return for review.')
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true)
+  await editor.screenshot({path:'../QA_REPORT/followup-calendar-2026-11-17/mobile-calendar.png',animations:'disabled'})
+ }
  await editor.getByRole('button',{name:'Remove Recommendation',exact:true}).click();await expect(editor.locator('input,textarea')).toHaveCount(0)
  expect(state.calls.filter(c=>c.method==='POST'&&(/appointments$|\/queue$|\/pay$/.test(c.path)))).toHaveLength(0)
+})
+
+test('patient can book the other date when one date in a recommendation is already booked',async({page})=>{
+ await page.clock.setFixedTime(new Date('2026-11-17T02:00:00Z'))
+ await page.addInitScript(()=>sessionStorage.setItem('carait:selected-branch:8','1'))
+ await mockClinic(page,'patient')
+ await page.route('**/api/**',route=>{
+  const path=new URL(route.request().url()).pathname
+  if(path.endsWith('/branches'))return route.fulfill({json:[{id:1,name:'Test Branch',is_active:1}]})
+  if(path.endsWith('/follow-ups'))return route.fulfill({json:[
+  {id:5,branch_id:1,status:'active',return_date:'2026-11-20',doctor_note:'First review',booked_appointment_id:90},
+  {id:5,branch_id:1,status:'active',return_date:'2026-12-01',doctor_note:'Second review',booked_appointment_id:null},
+  ]})
+  return route.fallback()
+ })
+ await page.goto('/patient/history')
+ const recommendations=page.getByRole('region',{name:'Recommended Follow-Up',exact:true})
+ await expect(recommendations).toContainText('First review')
+ await expect(recommendations).toContainText('Second review')
+ await expect(recommendations.getByRole('link',{name:'View Your Appointment',exact:true})).toHaveCount(1)
+ await expect(recommendations.getByRole('link',{name:'Book Appointment',exact:true})).toHaveAttribute('href',/follow_up_date=2026-12-01/)
 })
 
 test('patient: recommendations filter old/booked dates on dashboard, history retains them, booking stays patient initiated',async({page})=>{

@@ -13,7 +13,7 @@ import { printBillingReceipt } from '../../utils/billingReceipt'
 
 const STATUS_OPTIONS = [
   ['', 'Any status'], ['draft', 'Needs Review'], ['ready', 'Ready to Collect'],
-  ['partially_paid', 'Balance Remaining'], ['paid', 'Completed'],
+  ['paid', 'Completed'],
   ['refunded', 'Refunded'], ['voided', 'Voided'],
 ]
 

@@ -21,8 +21,8 @@ const billing = loadModule(billingFile, name => name === '../db/connect'
   ? { query() { throw new Error('Unexpected real database access') } }
   : billingRequire(name))
 
-function setup(role = 'staff') {
-  const record = { id: 7, branch_id: 2, status: 'ready', total_amount: 1500, items: [] }
+function setup(role = 'staff', total = 1500) {
+  const record = { id: 7, branch_id: 2, status: 'ready', total_amount: total, items: [] }
   const payments = []
   const state = { committed: 0, rolledBack: 0, released: 0, receipts: 0, stockChecks: 0, audits: [], events: [] }
   const conn = {
@@ -68,7 +68,7 @@ function setup(role = 'staff') {
     '../utils/billing': {
       ...billing,
       async getBillingRecordWithItems() {
-        return { ...record, payments: [...payments], balance_amount: 1500 - payments.reduce((sum, p) => sum + p.amount, 0) }
+        return { ...record, payments: [...payments], balance_amount: total - payments.reduce((sum, p) => sum + p.amount, 0) }
       },
     },
     '../utils/payments': require('../../utils/payments'),
@@ -119,16 +119,48 @@ for (const role of ['staff', 'admin']) {
   })
 }
 
-test('accepts centavo precision for partial payments and cash tendered', async () => {
-  const { pay, req, res, state, payments } = setup()
+test('accepts centavo precision for full payments and cash tendered', async () => {
+  const { pay, req, res, state, payments } = setup('staff', 875.25)
   Object.assign(req.body, { payment_amount: 875.25, amount_received: 1000.50 })
   await pay(req, res)
   assert.equal(res.statusCode, 200)
-  assert.equal(res.payload.status, 'partially_paid')
-  assert.equal(res.payload.balance_amount, 624.75)
+  assert.equal(res.payload.status, 'paid')
+  assert.equal(res.payload.balance_amount, 0)
   assert.equal(payments[0].change_amount, 125.25)
-  assert.equal(state.stockChecks, 0)
+  assert.equal(state.stockChecks, 1)
   assert.equal(state.committed, 1)
+})
+
+test('rejects partial collections before allocating a receipt or recording a payment', async () => {
+  const { pay, req, res, state, payments } = setup()
+  req.body.payment_amount = 1000
+  await pay(req, res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.payload.code, 'FULL_PAYMENT_REQUIRED')
+  assert.equal(payments.length, 0)
+  assert.equal(state.receipts, 0)
+  assert.equal(state.committed, 0)
+  assert.equal(state.rolledBack, 1)
+})
+
+test('exact cash payment records the full bill with zero change', async () => {
+  const { pay, req, res, payments } = setup()
+  req.body.amount_received = 1500
+  await pay(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.payload.status, 'paid')
+  assert.equal(payments[0].amount, 1500)
+  assert.equal(payments[0].change_amount, 0)
+})
+
+test('cash below the calculated bill is rejected without a receipt or payment', async () => {
+  const { pay, req, res, payments, state } = setup()
+  req.body.amount_received = 1499.99
+  await pay(req, res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(payments.length, 0)
+  assert.equal(state.receipts, 0)
+  assert.equal(state.committed, 0)
 })
 
 for (const [field, value, message] of [

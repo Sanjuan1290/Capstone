@@ -605,11 +605,9 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
           <p className="mt-1 font-bold text-slate-500">{paymentMethodLabel(lastPayment.payment_method)}</p>
           <div className="mx-auto mt-5 max-w-sm rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
             <p><strong>Receipt:</strong> {lastPayment.receipt_number || '—'}</p>
-            <p className="mt-1"><strong>Remaining Balance:</strong> {formatMoney(bill.balance_amount)}</p>
           </div>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button className="button-secondary" onClick={() => printReceipt(lastPayment)}><MdPrint /> Print Receipt</button>
-            {Number(bill.balance_amount || 0) > 0 && <button className="button-secondary" onClick={() => setPaymentSuccess(false)}>Collect Another Payment</button>}
             <button className="button-primary" onClick={() => navigate(billingHome)}>Next Patient →</button>
           </div>
         </div>

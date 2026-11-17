@@ -18,7 +18,7 @@ const DataTable=({columns,rows,empty='No records match the selected filters.'})=
  if(!rows?.length)return <Empty title="No report records" description={empty}/>
  return <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">{columns.map(c=><th key={c.label} scope="col" className={`whitespace-nowrap px-3 py-3 ${c.right?'text-right':''}`}>{c.label}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id||`${index}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">{columns.map(col=><td key={col.label} className={`px-3 py-3 ${col.right?'text-right tabular-nums':''}`}>{col.render?col.render(row):row[col.key]??'—'}</td>)}</tr>)}</tbody></table></div>
 }
-const Cards=({cards})=><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">{cards.map(({title,value,description,Icon})=><StatCard key={title} label={title} value={value} helper={description} icon={Icon}/>)}</div>
+const Cards=({cards})=><div className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-3 ${cards.length===5?'xl:grid-cols-5':'xl:grid-cols-6'}`}>{cards.map(({title,value,description,Icon})=><StatCard key={title} label={title} value={value} helper={description} icon={Icon}/>)}</div>
 const BranchTable=({branches})=><DataTable columns={[
  {label:'Branch',render:r=><><span className="font-semibold">{r.name}</span>{!Number(r.is_active)&&<span className="ml-2 text-xs text-slate-500">(Inactive)</span>}</>},
  {label:'Appointments',right:true,render:r=>whole(r.appointments)},
@@ -38,7 +38,6 @@ function OverviewReport({data,branches,trends,error,refresh}) {
    valueBox('Completed Visits',whole(t.completed),null,MdCheckCircle),
    valueBox('Unique Patients',whole(t.unique_patients),null,MdPeople),
    valueBox('No-show Rate',`${num(t.no_show_rate).toFixed(1)}%`,'Completed + no-show visits',MdPersonOff),
-   valueBox('Outstanding',money(t.outstanding),'Current unpaid balances',MdPayments),
   ]}/>
   <div className="grid gap-5 lg:grid-cols-2">
    <Card title="Appointment Activity" description="Counted by appointment date">{trends===null?<Banner onRetry={refresh}>{error||'Appointment trend could not load.'}</Banner>:<LineChart data={(trends||[]).map(r=>({label:String(r.date).slice(5),value:num(r.appointments)}))} />}</Card>
@@ -74,7 +73,6 @@ function FinancialReport({data}) {
    valueBox('Net Billed',money(b.net_billed),null,MdPayments),
    valueBox('Gross Received',money(l.gross_received),'Before adjustments',MdPayments),
    valueBox('Net Collections',money(l.net_collected),'Payments - voids - refunds',MdPayments),
-   valueBox('Outstanding',money(data.outstanding),'Current unpaid balances',MdPayments),
   ]}/>
   <div className="grid gap-5 lg:grid-cols-2"><Card title="Revenue by Month"><LineChart data={(data.revenue_trend||[]).map(r=>({label:r.month||r.ym,value:num(r.revenue)}))} valueFormatter={money}/></Card><Card title="Collections by Payment Method"><HorizontalBarChart data={(data.payments_by_method||[]).map(r=>({label:label(r.payment_method),value:num(r.net)}))} valueFormatter={money}/></Card></div>
   <Card title="Payment Breakdown" description="Each amount follows its actual payment, void or refund date"><DataTable columns={[

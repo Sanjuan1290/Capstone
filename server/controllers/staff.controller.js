@@ -1658,6 +1658,7 @@ const payBill = async (req, res) => {
     if(!Number.isFinite(requestedPayment)||roundMoney(requestedPayment)!==requestedPayment){await conn.rollback();return res.status(400).json({message:'Payment amounts must have at most two decimal places.'})}
     if (requestedPayment <= 0) { await conn.rollback(); return res.status(400).json({ message: 'Enter a payment amount greater than zero.' }) }
     if (requestedPayment > balance + 0.001) { await conn.rollback(); return res.status(400).json({ message: 'Payment amount cannot exceed the remaining balance.' }) }
+    if (requestedPayment < balance - 0.001) { await conn.rollback(); return res.status(400).json({ code: 'FULL_PAYMENT_REQUIRED', message: 'Partial payments are not accepted. Collect the full remaining balance.' }) }
 
     const tendered = paymentMethod === 'cash'
       ? Math.max(0, Number(req.body.amount_received ?? requestedPayment) || 0)
@@ -1669,11 +1670,11 @@ const payBill = async (req, res) => {
     // Sequential, clinic-dated official receipt number (locked until commit, no gaps).
     const { receiptNumber } = await allocateReceiptNumber(conn, lockedBill.branch_id)
     const balanceAfter = Math.max(0, Math.round((balance - requestedPayment) * 100) / 100)
-    const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
+    const nextStatus = 'paid'
     const paidAt = getClinicDateTimeSql()
 
     // One final stock-out for consultation items and checkout items, inside
-    // the same transaction as the payment and receipt. Partial payment never posts.
+    // the same transaction as the full payment and receipt.
     let checkoutDispensed = []
     if (nextStatus === 'paid') {
       await assertNoUnpostedStockWithFeatureOff(billingId, conn)

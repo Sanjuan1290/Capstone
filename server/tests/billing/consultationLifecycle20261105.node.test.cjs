@@ -11,9 +11,16 @@ function lifecycle(){
  const appointment={id:9,branch_id:1,patient_id:4,doctor_id:3,status:'in-progress',requested_service_id:77,promotion_selected_for_service_id:77,promotion_discount_amount_snapshot:135,promotion_title_snapshot:'Christmas Promo'}
  const catalog={id:77,service_name:'Wound Dressing',default_price:540,consultation_fee:350,is_active:1,materials:[{catalog_service_id:77,inventory_id:7,quantity:1,material_name:'Gauze',unit_label:'unit'}]}
  const conn={beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release:()=>{},query:async(sql,args=[])=>{
+  if(sql.startsWith('SELECT id FROM patients'))return [[{id:4}]]
+  if(sql.includes('FROM branch_billing_settings')||sql.includes('FROM discount_presets'))return [[]]
+  if(sql.includes('FROM billing_financial_snapshots'))return [state.snapshot?[state.snapshot]:[]]
+  if(sql.startsWith('INSERT INTO billing_financial_snapshots')){state.snapshot={policy_json:args[2],calculation_json:null,confirmed_at:null};return [{affectedRows:1}]}
+  if(sql.startsWith('UPDATE billing_financial_snapshots SET calculation_json=')){state.snapshot.calculation_json=args[0];return [{affectedRows:1}]}
+  if(sql.startsWith('SELECT id,target_type,catalog_service_id,inventory_id,requested_amount'))return [state.requests.filter(r=>r.status==='approved')]
+  if(sql.startsWith('UPDATE billing_records SET subtotal=')){Object.assign(state.bill,{subtotal:args[0],discount_amount:args[1],total_amount:args[2]});return [{affectedRows:1}]}
   if(sql.startsWith('SELECT * FROM appointments'))return [[...(Number(args[0])===9&&args[1]===3&&args[2]===1?[structuredClone(appointment)]:[])]]
   if(sql.includes('FROM queue'))return [[]]
-  if(sql.startsWith('SELECT id, status, version FROM consultations'))return [[structuredClone(state.clinical)]]
+  if(sql.startsWith('SELECT id, status, version')&&sql.includes('FROM consultations'))return [[structuredClone(state.clinical)]]
   if(sql.startsWith('UPDATE consultations')){if(sql.includes("SET status='finalized'"))state.clinical.status='finalized';return [{affectedRows:1}]}
   if(sql.startsWith("UPDATE appointments SET status")){appointment.status='completed';return [{affectedRows:1}]}
   if(sql.includes('FROM inventory WHERE id=?'))return [[{id:7,name:'Gauze',unit:'unit',base_unit:'unit',uom:'unit',archived_at:null}]]
@@ -36,7 +43,8 @@ function lifecycle(){
  assertAppointmentTransition:require('../../utils/appointmentSecurity').assertAppointmentTransition,
  assertConsultationVersion:require('../../utils/consultationIntegrity').assertConsultationVersion,
  assertBookedServicePresent:(appt,services)=>assert.equal(services[0].catalog_service_id,appt.requested_service_id),
- upsertDraftBillingForAppointment:billing.upsertDraftBillingForAppointment,
+ upsertDraftBillingForAppointment:async(...args)=>{assert.equal(state.clinical.status,'finalized');assert.equal(appointment.status,'completed');return billing.upsertDraftBillingForAppointment(...args)},
+ saveFollowup:async()=>{},readFollowup:async()=>null,
  consumeClinicalInventory:async({billing:bill})=>{state.consumed=billing.collectInventoryUsageFromBillingItems(bill.items)},
  writeAuditLog:require('../../utils/audit').writeAuditLog,getTodayDateOnly:()=> '2026-11-05',broadcast:()=>{},
  createNotification:async n=>state.notifications.push(n),console}
@@ -51,8 +59,8 @@ for(const decision of ['none','approved','rejected'])test(`complete consultation
  let status=200,result
  await finalize({params:{appointmentId:9},branchId:1,user:{id:3},body:{expected_version:1,billable_services:[{catalog_service_id:77,quantity:1,usage_change_reason:'Used two pads for treatment.',materials:[{inventory_id:7,material_name:'Gauze',quantity:2,unit_label:'unit'}]}]}},{status(n){status=n;return this},json(value){result=value;return this}})
  assert.equal(status,200);assert.equal(result.status,'finalized');assert.equal(state.clinical.status,'finalized')
- assert.equal(result.billing.subtotal,540);assert.equal(result.billing.promotion_discount_amount,135);assert.equal(result.billing.total_amount,405)
+ assert.equal(result.billing.subtotal,550);assert.equal(result.billing.promotion_discount_amount,135);assert.equal(result.billing.total_amount,415)
  assert.equal(state.consumed[0].quantity,2);assert.equal(state.notifications.length,2)
  if(requestId)await finance.resolve({billingId:6,branchId:1,requestId,adminId:8,actorRole:'admin',status:decision,note:decision==='rejected'?'Not eligible':'Reviewed clinical request'},conn)
- assert.equal(state.bill.total_amount,decision==='approved'?385:405);assert.equal(state.consumed[0].quantity,2)
+ assert.equal(state.bill.total_amount,decision==='approved'?395:415);assert.equal(state.consumed[0].quantity,2)
 })

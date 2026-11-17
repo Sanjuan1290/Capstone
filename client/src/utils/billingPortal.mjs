@@ -8,7 +8,6 @@ export function billPaymentLabel(bill) {
  if(['voided','refunded'].includes(bill.status))return bill.status==='voided'?'Voided':'Refunded'
  const balance=Number(bill.balance_amount??Math.max(0,Number(bill.total_amount)-Number(bill.paid_amount)))
  if(bill.status==='paid'&&balance===0)return 'Paid in full'
- if(balance>0&&Number(bill.paid_amount)>0)return 'Partially paid'
  if(Number(bill.pending_charge_requests)>0)return 'Awaiting charge approval'
  if(['creating','pending'].includes(bill.attempt_status))return 'Processing QR payment'
  if(bill.attempt_status==='review')return 'Payment needs review'

@@ -3,7 +3,7 @@ import { REPORT_SECTIONS, reportTables } from '../pages/superAdminPage/redesign/
 const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 const money = value => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value)
 const number = value => Number(value || 0)
-const moneyMetrics = new Set(['Gross Billed', 'Net Billed', 'Discounts', 'Promotion Discounts', 'Gross Received', 'Voided', 'Refunded', 'Net Collected', 'Outstanding', 'Outstanding Balance', 'Estimated Selling Value'])
+const moneyMetrics = new Set(['Gross Billed', 'Net Billed', 'Discounts', 'Promotion Discounts', 'Gross Received', 'Voided', 'Refunded', 'Net Collected', 'Estimated Selling Value'])
 const formatCell = (value, table, row, index) => {
   const currency = (table.name === 'Payment Methods' && index >= 2)
     || (table.name === 'Branch Comparison' && index >= 3)
@@ -45,7 +45,7 @@ export function buildSuperAdminReportHtml(reports, { branchName = 'All Branches'
     .notes { margin-top: 16px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
     footer { position: fixed; bottom: -12mm; left: 0; right: 0; text-align: center; color: #64748b; font-size: 8px; }
   </style></head><body><header><p class="brand">CARAIT MEDICAL AND DERMATOLOGY CLINIC</p><h1>Reports &amp; Analytics</h1><p><strong>Branch scope:</strong> ${escapeHtml(branchName)}</p><p><strong>Reporting period:</strong> ${escapeHtml(from)} to ${escapeHtml(to)}</p><p><strong>Generated:</strong> ${escapeHtml(generated)} (Philippine time)</p></header>
-  <p>Aggregate clinic information only. Bills use finalization dates; payments, voids and refunds use their event dates. Current balances and inventory snapshots are separate from activity within the reporting period.</p>
+  <p>Aggregate clinic information only. Bills use finalization dates; payments, voids and refunds use their event dates. Inventory snapshots are separate from activity within the reporting period.</p>
   ${content}<aside class="notes"><h2>Report Notes</h2>${notes || '<p>No additional notes.</p>'}${reports.inventory?.as_of ? `<p><strong>Inventory snapshot:</strong> ${escapeHtml(reports.inventory.as_of)}</p>` : ''}</aside>
   <footer>Carait Clinic · ${escapeHtml(branchName)} · ${escapeHtml(from)} to ${escapeHtml(to)}</footer></body></html>`
 }

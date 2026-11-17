@@ -9,9 +9,10 @@ const service = fs.readFileSync(path.join(root, 'src/services/patient.service.js
 test('history keeps separate visit/billing tabs and linked patient bill details', () => {
   for (const text of ['Visit & Billing History', 'Visit History', 'Billing History', 'View Bill', 'View Bill & Payments', 'Payment History', 'printBillingReceipt', 'getMyBillingDetails']) assert.ok(page.includes(text), `missing ${text}`)
 })
-test('summary reports outstanding balances without guessing unavailable data', () => {
-  assert.match(page, /summary\.outstanding_balance/)
-  assert.match(page, /billingError \? .*'—'/)
+test('summary retains paid bill counts without displaying outstanding balances', () => {
+  assert.match(page, /summary\.paid_bills/)
+  assert.match(page, /billResults\.summary && !billingError/)
+  assert.doesNotMatch(page, /summary\.outstanding_balance|Outstanding Balance/)
 })
 test('uses patient-only endpoints for billing with credentials', () => {
   assert.match(service, /\/billing\/history/)

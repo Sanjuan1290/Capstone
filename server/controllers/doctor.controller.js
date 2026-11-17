@@ -639,7 +639,7 @@ const saveConsultationDraft = async (req, res) => {
   const conn = await db.getConnection()
   let consultationId
   let consultationVersion
-  let billing = null
+  const billing = null
   let appt
 
   try {
@@ -697,9 +697,7 @@ const saveConsultationDraft = async (req, res) => {
       // supply-change reason. Optional notes are length-checked at finalization.
       const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn, req.branchId)
       assertBookedServicePresent(appt, fixedBillableServices)
-      billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: fixedBillableServices }, conn)
-    } else {
-      billing = await getBillingByAppointmentId(appointmentId, conn)
+      await conn.query('UPDATE consultations SET billable_services_json=? WHERE id=? AND branch_id=?', [JSON.stringify(fixedBillableServices), consultationId, req.branchId])
     }
     // Draft/autosave must never depend on current treatment-room stock.
     // Inventory is revalidated and consumed only when the consultation is finalized.
@@ -732,7 +730,7 @@ const finalizeConsultation = async (req, res) => {
   const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
   const images = hasImagesPayload ? req.body.images : []
-  const billableServices = hasBillableServicesPayload ? req.body.billable_services : []
+  let billableServices = hasBillableServicesPayload ? req.body.billable_services : []
   const { appointmentId } = req.params
   const conn = await db.getConnection()
   let appt
@@ -778,10 +776,14 @@ const finalizeConsultation = async (req, res) => {
     }
 
     const [existing] = await conn.query(
-      'SELECT id, status, version FROM consultations WHERE appointment_id = ? FOR UPDATE',
+      'SELECT id, status, version, billable_services_json FROM consultations WHERE appointment_id = ? FOR UPDATE',
       [appointmentId]
     )
     assertConsultationVersion(req.body, existing[0])
+    if (!hasBillableServicesPayload && existing[0]?.billable_services_json) {
+      const saved = existing[0].billable_services_json
+      billableServices = typeof saved === 'string' ? JSON.parse(saved) : saved
+    }
 
     if (existing.length > 0) {
       if (String(existing[0].status || 'draft') === 'finalized') {
@@ -816,20 +818,19 @@ const finalizeConsultation = async (req, res) => {
     if (existingBill && !['draft','pending'].includes(String(existingBill.status))) {
       throw Object.assign(new Error('Billing has already been finalized or sent for payment. Contact Admin for a controlled correction.'), {statusCode:409,code:'BILL_NOT_EDITABLE'})
     }
+    await conn.query(
+      `UPDATE consultations
+       SET status='finalized', finalized_at=NOW(), finalized_by_doctor_id=?, billable_services_json=?, updated_at=NOW(), version=COALESCE(version,1)+1
+       WHERE id=?`,
+      [req.user.id, JSON.stringify(fixedBillableServices), consultationId]
+    )
+    await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
     billing = await upsertDraftBillingForAppointment({
-      appointment: appt,
+      appointment: { ...appt, status: 'completed' },
       consultationId,
       items: fixedBillableServices,
     }, conn)
     await consumeClinicalInventory({ billing, consultationId, doctorId: req.user.id, appointment: appt }, conn)
-
-    await conn.query(
-      `UPDATE consultations
-       SET status='finalized', finalized_at=NOW(), finalized_by_doctor_id=?, updated_at=NOW(), version=COALESCE(version,1)+1
-       WHERE id=?`,
-      [req.user.id, consultationId]
-    )
-    await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
     await writeAuditLog({
       userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_finalized', entityType: 'consultation', entityId: consultationId,
       newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0, usage_reasons:fixedBillableServices.filter(item=>item.usage_change_reason).map(item=>({service_id:item.catalog_service_id,reason:item.usage_change_reason})), prescription_status: prescriptionStatus, status: 'finalized' },
@@ -966,6 +967,7 @@ const getConsultation = async (req, res) => {
   }).catch(() => {})
   res.json({
     ...consultation,
+    billable_services: consultation.billable_services_json == null ? null : (typeof consultation.billable_services_json === 'string' ? JSON.parse(consultation.billable_services_json) : consultation.billable_services_json),
     follow_up: await readFollowup(consultation.id,db),
     progress_images: imagesByConsultationId[consultation.id] || [],
     amendments: amendmentsByConsultationId[consultation.id] || [],
@@ -981,7 +983,7 @@ const updateConsultation = async (req, res) => {
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
   const conn = await db.getConnection()
   let patientId = null
-  let billing = null
+  const billing = null
 
   try {
     await conn.beginTransaction()
@@ -1025,13 +1027,7 @@ const updateConsultation = async (req, res) => {
     if (hasBillableServicesPayload) {
       const fixedBillableServices = await enforceFixedCatalogConsumables(req.body.billable_services, conn, req.branchId)
       assertBookedServicePresent(apptRows[0], fixedBillableServices)
-      billing = await upsertDraftBillingForAppointment({
-        appointment: apptRows[0],
-        consultationId: consultation.id,
-        items: fixedBillableServices,
-      }, conn)
-    } else {
-      billing = await getBillingByAppointmentId(appointmentId, conn)
+      await conn.query('UPDATE consultations SET billable_services_json=? WHERE id=? AND branch_id=?', [JSON.stringify(fixedBillableServices), consultation.id, req.branchId])
     }
 
     await conn.commit()

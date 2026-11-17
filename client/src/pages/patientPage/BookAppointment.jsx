@@ -863,6 +863,7 @@ const BookAppointment = () => {
         requested_service_id: form.service.id,
         promotion_id: selectedPromotionId || undefined,
         follow_up_id: /^[1-9]\d*$/.test(searchParams.get('follow_up_id') || '') ? Number(searchParams.get('follow_up_id')) : undefined,
+        follow_up_date: searchParams.get('follow_up_date') || undefined,
         reason:           form.reason,
         reason_details:   form.reason === 'Other' ? form.reasonDetails.trim() : '',
         appointment_date: form.date,

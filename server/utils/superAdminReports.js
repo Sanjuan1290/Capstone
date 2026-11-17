@@ -57,7 +57,7 @@ async function loadOverview(db,{from,to,branchId,now}) {
       out_of_stock:numeric(inventory.out_of_stock),
       no_show_rate: numeric(appointments.arrived_or_no_show) ? 100*numeric(appointments.no_show)/numeric(appointments.arrived_or_no_show) : 0 },
     revenue_trend:ledger.trend,
-    note:'Net collections use payment, void, and refund event dates. Stock and unpaid balances are current snapshots, not period totals.',
+    note:'Net collections use payment, void, and refund event dates. Stock figures are current snapshots, not period totals.',
   }
 }
 async function loadAppointments(db,{from,to,branchId}) {
@@ -115,7 +115,7 @@ async function loadFinancial(db,{from,to,branchId}) {
   return {billing:n(billing?.[0]), collections:ledger.summary,
     payments_by_method:ledger.byMethod, revenue_trend:ledger.trend,
     promotions:n(promotions?.[0]),outstanding:numeric(outstanding?.[0]?.amount),
-    note:'Billed amounts use bill finalization date; collections use actual payment/void/refund dates. Outstanding is the current unpaid balance.'}
+    note:'Billed amounts use bill finalization date; collections use actual payment/void/refund dates.'}
 }
 async function loadServices(db,{from,to,branchId}) {
   const a=scope(branchId,'a'),b=scope(branchId,'b')

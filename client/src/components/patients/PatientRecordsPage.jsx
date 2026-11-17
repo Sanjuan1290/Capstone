@@ -31,7 +31,7 @@ const statusLabel = value => ({
   completed: 'Completed', confirmed: 'Confirmed', pending: 'Waiting for confirmation',
   rescheduled: 'Rescheduled', cancelled: 'Cancelled', rejected: 'Declined',
   no_show: 'Did not attend', 'in-progress': 'In progress', in_progress: 'In progress',
-  draft: 'Not finalized', ready: 'Ready for payment', partially_paid: 'Partially paid',
+  draft: 'Not finalized', ready: 'Ready for payment', partially_paid: 'Payment required',
   paid: 'Paid', voided: 'Voided', refunded: 'Refunded',
 }[value] || (value ? String(value).replace(/_/g, ' ') : 'Not recorded'))
 const statusTone = value => ['completed', 'paid', 'confirmed'].includes(value) ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
@@ -109,11 +109,10 @@ function VisitDetails({ visit, bill, canViewBilling, clinicSettings, onBack }) {
       {!bill ? <p className="mt-3 text-sm text-slate-600">No bill has been created for this visit.</p> : <>
         <div className="mt-3"><Status value={bill.status} /></div>
         {otherItems.length > 0 && <div className="mt-4"><h4 className="font-semibold text-slate-800">Other charges</h4>{otherItems.map(item => <div key={item.id} className="flex justify-between gap-3 py-2 text-sm text-slate-700"><span>{item.service_name} × {Number(item.quantity)}</span><span>{money(item.line_total)}</span></div>)}</div>}
-        <dl className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-3">
           <Info label="Bill total" value={money(bill.total_amount)} />
           <Info label="Discount" value={money(bill.discount_amount)} />
           <Info label="Paid to date" value={money(bill.paid_amount)} />
-          <Info label="Remaining balance" value={money(bill.balance_amount)} />
         </dl>
         <h4 className="mt-6 font-semibold text-slate-900">Payment Receipts</h4>
         {!bill.payments?.length ? <p className="mt-2 text-sm text-slate-600">No payment or receipt has been recorded for this bill.</p> : <div className="mt-3 space-y-3">{bill.payments.map(payment => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 p-4">
@@ -182,7 +181,6 @@ export default function PatientRecordsPage({ getDirectory, getPatientRecord }) {
   const previous = visits.filter(v => v.status !== 'completed' && !upcoming.includes(v))
   const mostRecent = completed[0]
   const canViewBilling = record?.can_view_billing !== false
-  const balance = bills.filter(b => !['voided','refunded'].includes(b.status)).reduce((sum,b) => sum + Number(b.balance_amount || 0), 0)
   // A bill may predate the most recent 500 appointments. Keep its receipt reachable.
   const olderBill = bills.find(b => Number(b.appointment_id) === Number(openVisit))
   const selectedVisit = visits.find(v => Number(v.id) === Number(openVisit)) || (openVisit && olderBill ? {
@@ -233,7 +231,7 @@ export default function PatientRecordsPage({ getDirectory, getPatientRecord }) {
               <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-xl bg-sky-50 p-4"><p className="text-sm font-medium text-slate-600">{record.history_has_more ? 'Completed Visits Shown' : 'Completed Visits'}</p><p className="mt-1 text-2xl font-bold text-sky-900">{completed.length}</p></div>
                 <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm font-medium text-slate-600">Last Completed Visit</p><p className="mt-1 text-base font-bold text-slate-900">{mostRecent ? formatDate(mostRecent.date) : 'None recorded'}</p></div>
-                <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm font-medium text-slate-600">{canViewBilling ? 'Remaining Balance' : 'Upcoming Appointments'}</p><p className="mt-1 text-xl font-bold text-slate-900">{canViewBilling ? money(balance) : upcoming.length}</p></div>
+                <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm font-medium text-slate-600">Upcoming Appointments</p><p className="mt-1 text-xl font-bold text-slate-900">{upcoming.length}</p></div>
               </div>
             </header>
             <nav aria-label="Patient record sections" className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -264,7 +262,7 @@ export default function PatientRecordsPage({ getDirectory, getPatientRecord }) {
             {tab === 'payments' && canViewBilling && <section className="space-y-4"><div><h2 className="text-xl font-bold">Payments & Receipts</h2><p className="mt-1 text-base text-slate-600">Choose a visit to see the itemized bill and print its payment receipts.</p></div>
               {!bills.length ? <Empty title="No bills recorded" explanation="When a bill is created for this patient in this branch, it will appear here."/> : bills.map(bill=><article key={bill.id} className="rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-bold">{formatDate(bill.appointment_date)}</h3><p className="mt-1 text-sm text-slate-600">{bill.appointment_reason || 'Clinic visit'} · {bill.doctor_name || 'Doctor not recorded'}</p></div><Status value={bill.status}/></div>
-                <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3"><Info label="Total bill" value={money(bill.total_amount)}/><Info label="Amount paid" value={money(bill.paid_amount)}/><Info label="Balance" value={money(bill.balance_amount)}/></dl>
+                <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3"><Info label="Total bill" value={money(bill.total_amount)}/><Info label="Amount paid" value={money(bill.paid_amount)}/></dl>
                 <p className="mt-3 text-sm text-slate-600">{(bill.payments || []).filter(p=>p.receipt_number).length} payment receipt(s)</p>
                 <button type="button" onClick={()=>{setTab('history');setOpenVisit(bill.appointment_id)}} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-sky-700 px-5 font-semibold text-white">View Bill & Receipts <MdChevronRight/></button>
               </article>)}

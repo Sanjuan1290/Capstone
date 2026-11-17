@@ -3,6 +3,7 @@ import { updateRecommendedFollowup } from '../../services/doctor.service'
 import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
 import { supplyQuantityError } from '../../utils/supplyQuantity.mjs'
 import DoctorChargeReductionPanel from '../../components/billing/DoctorChargeReductionPanel'
+import { followupDates, followupPayload } from '../../utils/followupCalendar.mjs'
 import { restoreConsultationServicesFromBilling, supplyReasonStatus } from '../../utils/consultationSupplyReason.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -402,7 +403,7 @@ const Doctor_Consultation = () => {
       promotion_id: promotion.id,
       promotion_discount_amount_snapshot: promotion.discount_amount ?? 0,
     } : current)
-    setBillableServices(restoreConsultationServicesFromBilling(consult?.billing?.items))
+    setBillableServices(Array.isArray(consult.billable_services) ? consult.billable_services : restoreConsultationServicesFromBilling(consult?.billing?.items))
   }
 
   useEffect(() => {
@@ -864,7 +865,7 @@ const Doctor_Consultation = () => {
     return {
       diagnosis,
       notes,
-      follow_up: followup ? (followup.return_date ? {return_date:followup.return_date,doctor_note:followup.doctor_note} : undefined) : null,
+      follow_up: followup && !followupDates(followup).length ? undefined : followupPayload(followup),
       prescription_status: prescriptionDecision,
       prescription: JSON.stringify(prescriptionItems),
       images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
@@ -940,7 +941,7 @@ const Doctor_Consultation = () => {
       window.alert('Describe the skipped part of the service in at least 5 characters.')
       return
     }
-    if (followup && !followup.return_date) { setFollowupError('Select a recommended return date, or remove the recommendation.'); return }
+    if (followup && !followupDates(followup).length) { setFollowupError('Select at least one recommended return date, or remove the recommendation.'); return }
     if (!window.confirm('Complete consultation? This will finalize the clinical record, record the items actually used, update the bill, and mark the appointment completed. Stock handling follows the clinic billing settings. Further changes must be recorded as an amendment.')) return
     const isCurrent = captureCurrentConsultation()
     if (!isCurrent()) return
@@ -1158,7 +1159,7 @@ const Doctor_Consultation = () => {
           ))}
         </div>
 
-        {tab === 'consultation' && appointmentId && <DoctorChargeReductionPanel appointmentId={appointmentId} services={billableServices} ensureSaved={persistDraft} revision={lastSavedAt?.getTime()} completed={consultationStatus === 'finalized'} />}
+        {tab === 'consultation' && appointmentId && <DoctorChargeReductionPanel appointmentId={appointmentId} revision={lastSavedAt?.getTime()} completed={consultationStatus === 'finalized'} />}
 
         {tab === 'consultation' && (
           <div className="space-y-5">
@@ -1174,7 +1175,7 @@ const Doctor_Consultation = () => {
               const isCurrent = captureCurrentConsultation()
               if (!isCurrent()) return
               setFollowupSaving(true); setFollowupError('')
-              try { const result=await updateRecommendedFollowup(appt.id,{follow_up:followup ? {return_date:followup.return_date,doctor_note:followup.doctor_note} : null,expected_version:followupVersion});if(!isCurrent())return;setFollowup(result.follow_up?.status==='active'?result.follow_up:null);setFollowupVersion(Number(result.follow_up?.version||0)) }
+              try { const result=await updateRecommendedFollowup(appt.id,{follow_up:followupPayload(followup),expected_version:followupVersion});if(!isCurrent())return;setFollowup(result.follow_up?.status==='active'?result.follow_up:null);setFollowupVersion(Number(result.follow_up?.version||0)) }
               catch(error){if(isCurrent())setFollowupError(error.message)}finally{if(isCurrent())setFollowupSaving(false)}
             }}>{followupSaving?'Saving recommendation...':'Save Recommendation'}</button>}
             <fieldset disabled={consultationStatus === 'finalized' || saving} className={`space-y-5 ${consultationStatus === 'finalized' ? 'opacity-90' : ''}`}>

@@ -16,10 +16,9 @@ export default function PaymentPreview({ bill, draft, formatMoney }) {
             <div className="flex justify-between gap-2"><dt>Cash received</dt><dd className="font-bold">{formatMoney(preview.cashReceived)}</dd></div>
             <div className="flex justify-between gap-2"><dt>Expected change</dt><dd className="font-bold">{formatMoney(preview.change)}</dd></div>
           </>}
-          <div className="flex justify-between gap-2 border-t border-slate-200 pt-2"><dt>Estimated balance after recording</dt><dd className="font-bold">{formatMoney(preview.balanceAfter)}</dd></div>
         </dl>
       )}
-      <p className="mt-2 text-[11px] text-slate-500">Recorded Paid and Balance above update only after a successful payment.</p>
+      <p className="mt-2 text-[11px] text-slate-500">Recorded amounts update only after a successful payment.</p>
     </section>
   )
 }

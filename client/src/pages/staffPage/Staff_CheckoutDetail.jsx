@@ -155,7 +155,7 @@ const Staff_CheckoutDetail = () => {
 
   const inventoryMap = useMemo(() => new Map(inventory.map((item) => [Number(item.id), item])), [inventory])
   const totals = totalsFor(draft,dirty)
-  const paymentAmount = draft?.partial_payment ? Number(draft.payment_amount) : Number(bill?.balance_amount||0)
+  const paymentAmount = Number(bill?.balance_amount || 0)
   const zeroPriceItems = (draft?.items || []).filter((item) => Number(item.unit_price || 0) <= 0)
   const directCheckoutSupplyCount = (draft?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id || 0) > 0).length
   const paymentMethods = enabledPaymentMethods(paymentSettings)
@@ -641,11 +641,9 @@ const Staff_CheckoutDetail = () => {
           <p className="mt-1 font-bold text-slate-500">{paymentMethodLabel(lastPayment.payment_method)}</p>
           <div className="mx-auto mt-5 max-w-sm rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
             <p><strong>Receipt:</strong> {lastPayment.receipt_number || '—'}</p>
-            <p className="mt-1"><strong>Remaining Balance:</strong> {formatMoney(bill.balance_amount)}</p>
           </div>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button className="button-secondary" onClick={() => printReceipt(lastPayment)}><MdPrint /> Print Receipt</button>
-            {Number(bill.balance_amount || 0) > 0 && <button className="button-secondary" onClick={() => setPaymentSuccess(false)}>Collect Another Payment</button>}
             <button className="button-primary" onClick={() => navigate('/staff/checkout')}>Next Patient →</button>
           </div>
         </div>

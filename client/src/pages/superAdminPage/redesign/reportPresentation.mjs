@@ -7,7 +7,7 @@ export const REPORT_SECTIONS = [
   {value:'inventory',label:'Inventory'},
 ]
 const number = value => Number(value || 0)
-const rowsFor = (entries) => Object.entries(entries || {}).map(([name,value]) => [name,typeof value === 'number'?value:String(value??'')])
+const rowsFor = (entries) => Object.entries(entries || {}).filter(([name]) => !['outstanding','outstanding_balance','pending_receivables','partially_paid_bills'].includes(name)).map(([name,value]) => [name,typeof value === 'number'?value:String(value??'')])
 const groupRows = (group,rows,fields) => (rows || []).map(row => [group,...fields.map(field=>row?.[field]??'')])
 const displayName = key => String(key).replace(/[_-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
 const nameValueRows = (group, data, fields=['name','count']) => groupRows(group,data,fields).map(([g,...rest])=>[g,displayName(rest[0]),rest[1]])
@@ -33,7 +33,6 @@ export function sectionRows(section, data, branches=[]) {
   case 'financial': return [
    ...rowsFor(data.billing).map(([key,value])=>['Billing',displayName(key),value]),
    ...rowsFor(data.collections).map(([key,value])=>['Collections',displayName(key),value]),
-   ['Current Snapshot','Outstanding Balance',number(data.outstanding)],
    ...nameValueRows('Promotions',[{name:'Discounts',count:data.promotions?.promotion_savings},{name:'Promotional Bills',count:data.promotions?.promotional_bills}]),
    ...(data.payments_by_method||[]).map(r=>['Payment Method',r.payment_method,r.net]),
    ...(data.revenue_trend||[]).map(r=>['Revenue Trend',r.ym,r.revenue]),
