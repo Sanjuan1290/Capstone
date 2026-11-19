@@ -2,7 +2,7 @@ import { uploadValidatedImage } from './imageUpload'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/admin.service.js
 
-const getAdminApiBase = () => {
+export const getAdminApiBase = () => {
   if (typeof window === 'undefined') return '/api/admin'
   if (window.location.pathname.startsWith('/staff') || sessionStorage.getItem('auth_role') === 'staff') return '/api/staff/admin-access'
   const selected = window.location.pathname.match(/^\/superadmin\/branches\/(\d+)(?:\/|$)/)

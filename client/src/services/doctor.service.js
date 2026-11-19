@@ -146,3 +146,6 @@ export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
 
 export const updateRecommendedFollowup = (appointmentId,body) => requestJson(`${BASE}/consultations/${appointmentId}/follow-up`, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+
+export const getMedicalCertificate = id => requestJson(`${BASE}/consultations/${id}/medical-certificate`)
+export const issueMedicalCertificate = (id,body) => requestJson(`${BASE}/consultations/${id}/medical-certificate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})

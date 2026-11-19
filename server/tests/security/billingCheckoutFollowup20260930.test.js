@@ -58,12 +58,12 @@ describe('billing checkout follow-up regressions', () => {
     const staff = read('client', 'src', 'components', 'billing', 'BillCheckout.jsx')
     const controller = read('server', 'controllers', 'staff.controller.js')
     for (const source of [admin, staff]) {
-      expect(source).toContain("['consultation', 'consultation_extra']")
+      expect(source).toContain("['consultation', 'consultation_extra', 'service_addon']")
       expect(source).toContain("item.source_type === 'consultation_extra'")
       expect(source).not.toContain('Service consumables recorded by the Doctor are already deducted when the consultation is completed.')
       expect(source).toContain('Save Review')
     }
-    expect(controller).toContain("['consultation', 'consultation_extra'].includes(item.source_type)")
+    expect(controller).toContain("['consultation', 'consultation_extra', 'service_addon'].includes(item.source_type)")
     expect(controller).toContain("row.source_type === 'staff_supply'")
     expect(controller).toContain("item.source_type === 'staff_supply'")
   })

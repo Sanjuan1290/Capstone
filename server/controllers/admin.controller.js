@@ -1711,6 +1711,7 @@ const getAppointmentAvailableSlotsAdmin = async (req, res) => {
 
 const getBillingCatalogAdmin = async (req, res) => {
   const rows = await listBillingCatalog({
+    includeAddons:true,
     clinicType: String(req.query.clinic_type || '').trim() || undefined,
     includeInactive: String(req.query.include_inactive || '').trim() === '1',
   })
@@ -1753,6 +1754,7 @@ const createBillingCatalogService = async (req, res) => {
     )
     await conn.query('UPDATE billing_service_catalog SET doctor_fee_percentage=? WHERE id=?',[payload.doctor_fee_percentage,result.insertId])
     await saveBillingServiceMaterials(result.insertId, payload.materials, conn)
+    if(req.body.addons!==undefined) await require('../utils/serviceAddons').saveServiceAddons(conn,req.branchId,result.insertId,req.body.addons)
     await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'catalog.service_created', entityType: 'billing_service', entityId: result.insertId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
 
@@ -1816,6 +1818,7 @@ const updateBillingCatalogService = async (req, res) => {
     )
     await conn.query('UPDATE billing_service_catalog SET doctor_fee_percentage=? WHERE id=?',[payload.doctor_fee_percentage,req.params.serviceId])
     await saveBillingServiceMaterials(req.params.serviceId, payload.materials, conn)
+    if(req.body.addons!==undefined) await require('../utils/serviceAddons').saveServiceAddons(conn,req.branchId,req.params.serviceId,req.body.addons)
     await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'catalog.service_updated', entityType: 'billing_service', entityId: req.params.serviceId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
 

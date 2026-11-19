@@ -1,0 +1,64 @@
+{
+  "date": "2026-11-19",
+  "timezone": "Asia/Manila",
+  "baseline_commit": "40b98d589590508806468bdaa7f4cf9a7e43a4ed",
+  "environment": "Production controllers and built React UI with isolated in-memory SQL fixtures; Edge headless; no real database or payment provider writes.",
+  "focused_server": {
+    "tests": 59,
+    "pass": 59,
+    "fail": 0
+  },
+  "browser": {
+    "passed": 6,
+    "failed": 0
+  },
+  "frontend_build_passed": true,
+  "broader_node": {
+    "tests": 1022,
+    "pass": 952,
+    "fail": 70
+  },
+  "baseline_node": {
+    "tests": 1007,
+    "pass": 936,
+    "fail": 71
+  },
+  "new_node_failures": [],
+  "broader_vitest": {
+    "passed": 252,
+    "failed": 7,
+    "baseline_passed": 252,
+    "baseline_failed": 7
+  },
+  "migration_applied_to_real_database": false,
+  "required_migration": "server/db/migrations/2026-11-19-service-addons-certificates.sql",
+  "feature_checks": [
+    "1000 consultation payment; independent past certificate issuance; 100 add-on pending bill; separate receipt; original receipt preserved",
+    "editable bill and doctor-completion preservation",
+    "75 service override, explicit zero override, zero default, later price changes",
+    "concurrent retries and a new submission key after reload",
+    "stale price, forged service, inactive item, wrong role, missing Staff checkout permission, wrong branch and doctor",
+    "certificate preview, PDF download, repeat download and saved-certificate reload",
+    "legacy draft status with earlier payment or finalization date"
+  ],
+  "template_update": {
+    "source": "med-cert.docx",
+    "sha256": "b86fd7b26402d290974feabf1b0499d8f317eaf7ad0285548874669a09474c84",
+    "page_size_points": [
+      612,
+      792
+    ],
+    "source_inspection": "Read-only Word PDF export; original document unchanged.",
+    "rendering": "Shared canvas renderer for preview and downloadable PDF; original two logo assets.",
+    "checks": [
+      "original consultation age and separate issuance date",
+      "actual issuing doctor and license",
+      "Letter PDF media box",
+      "multi-page clinical text within page bounds",
+      "preview and PDF text geometry match",
+      "existing billing workflow and retry checks"
+    ],
+    "additional_migration_required": false,
+    "broader_suite_results_scope": "Broader suite results above are from the original billing implementation; this appearance follow-up uses the focused server/browser checks and frontend build."
+  }
+}

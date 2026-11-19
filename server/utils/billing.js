@@ -121,7 +121,7 @@ const computeCatalogServicePricing = (service = {}) => {
   }
 }
 
-const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
+const hydrateBillingCatalogRows = async (serviceRows = [], executor = db, includeAddons = false) => {
   if (!Array.isArray(serviceRows) || serviceRows.length === 0) return []
 
   const serviceIds = serviceRows.map((row) => row.id)
@@ -174,8 +174,10 @@ const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
     materialsByServiceId.set(row.billing_service_id, list)
   }
 
+  const addonRows=includeAddons?await require('./serviceAddons').serviceAddonRows(serviceIds,executor):[]
   return serviceRows.map((row) => computeCatalogServicePricing({
     ...row,
+    addons:addonRows.filter(addon=>Number(addon.service_id)===Number(row.id)),
     default_price: Number(row.default_price) || 0,
     consultation_fee: Number(row.consultation_fee) || 0,
     profit_percentage: Number(row.profit_percentage) || 0,
@@ -239,7 +241,7 @@ const listBillingCatalog = async (options = {}, executor = db) => {
     params
   )
 
-  return hydrateBillingCatalogRows(rows, executor)
+  return hydrateBillingCatalogRows(rows, executor, Boolean(options.includeAddons))
 }
 
 const getBillingCatalogServiceById = async (serviceId, executor = db, branchId = null) => {
@@ -615,7 +617,7 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
     ...records[0],
     financial_calculation: financialCalculation,
     billing_policy: savedBillingPolicy,
-    selected_promotion: records[0].promotion_title_snapshot ? {
+    selected_promotion: records[0].promotion_title_snapshot && !records[0].original_bill_id ? {
       id: records[0].promotion_id || null,
       title_at_booking: records[0].promotion_title_snapshot,
       terms_at_booking: records[0].promotion_terms_snapshot,
@@ -643,7 +645,7 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
 
 const getBillingByAppointmentId = async (appointmentId, executor = db) => {
   const [rows] = await executor.query(
-    'SELECT id FROM billing_records WHERE appointment_id = ? LIMIT 1',
+    'SELECT id FROM billing_records WHERE appointment_id = ? AND original_bill_id IS NULL LIMIT 1',
     [appointmentId]
   )
 
@@ -651,8 +653,8 @@ const getBillingByAppointmentId = async (appointmentId, executor = db) => {
   return getBillingRecordWithItems(rows[0].id, executor)
 }
 
-const saveBillingItems = async (billingId, items, executor = db) => {
-  await executor.query('DELETE FROM billing_items WHERE billing_id = ?', [billingId])
+const saveBillingItems = async (billingId, items, executor = db, preserveAddons = false) => {
+  await executor.query(preserveAddons ? "DELETE FROM billing_items WHERE billing_id = ? AND source_type <> 'service_addon'" : 'DELETE FROM billing_items WHERE billing_id = ?', [billingId])
 
   for (const item of items) {
     await executor.query(
@@ -688,7 +690,7 @@ const replaceStaffBillingItems = async (billingId, consultationItems = [], staff
     const [updated] = await executor.query(
       `UPDATE billing_items
        SET unit_price = ?, line_total = ?, details_json = ?, notes = ?, sort_order = ?
-       WHERE id = ? AND billing_id = ? AND source_type IN ('consultation','consultation_extra')`,
+       WHERE id = ? AND billing_id = ? AND source_type IN ('consultation','consultation_extra','service_addon')`,
       [item.unit_price, item.line_total, item.details_json || null, item.notes || null, item.sort_order || 0, item.id, billingId]
     )
     if (Number(updated.affectedRows || 0) !== 1) {
@@ -699,7 +701,7 @@ const replaceStaffBillingItems = async (billingId, consultationItems = [], staff
     }
   }
 
-  await executor.query("DELETE FROM billing_items WHERE billing_id = ? AND source_type NOT IN ('consultation','consultation_extra')", [billingId])
+  await executor.query("DELETE FROM billing_items WHERE billing_id = ? AND source_type NOT IN ('consultation','consultation_extra','service_addon')", [billingId])
   for (const item of staffItems) {
     await executor.query(
       `INSERT INTO billing_items
@@ -799,7 +801,7 @@ const upsertDraftBillingForAppointment = async ({
   const totals = computeBillingTotals({ items: normalizedItems, discount_amount:promotionDiscount })
 
   const [existingRows] = await executor.query(
-    'SELECT id, branch_id, status, discount_type, discount_label, discount_amount,promotion_discount_amount, payment_method, payment_notes, confirmed_by_staff_id, paid_at FROM billing_records WHERE appointment_id = ? AND branch_id = ? LIMIT 1',
+    'SELECT id, branch_id, status, discount_type, discount_label, discount_amount,promotion_discount_amount, payment_method, payment_notes, confirmed_by_staff_id, paid_at FROM billing_records WHERE appointment_id = ? AND branch_id = ? AND original_bill_id IS NULL LIMIT 1 FOR UPDATE',
     [appointment.id, branchId]
   )
 
@@ -809,8 +811,9 @@ const upsertDraftBillingForAppointment = async ({
       return getBillingRecordWithItems(existing.id, executor)
     }
 
+    const [addonItems]=await executor.query("SELECT * FROM billing_items WHERE billing_id=? AND source_type='service_addon' FOR UPDATE",[existing.id])
     const computed = computeBillingTotals({
-      items: normalizedItems,
+      items: [...normalizedItems,...addonItems],
       // Preserve additional manual/courtesy discounts while keeping the saved promotion component in sync.
       discount_amount: money(Math.max(0,Number(existing.discount_amount||0)-Number(existing.promotion_discount_amount||0))+promotionDiscount),
     })
@@ -822,8 +825,8 @@ const upsertDraftBillingForAppointment = async ({
       [consultationId, computed.subtotal,computed.discount_amount,promotionDiscount, computed.total_amount, existing.id, branchId]
     )
 
-    await saveBillingItems(existing.id, normalizedItems, executor)
-    await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(existing.id,branchId,executor)
+    await saveBillingItems(existing.id, normalizedItems, executor, true)
+    await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(existing.id,branchId,executor,{bill:{...existing,subtotal:computed.subtotal,total_amount:computed.total_amount,discount_amount:computed.discount_amount,promotion_discount_amount:promotionDiscount,items:[...normalizedItems,...addonItems]}})
     return getBillingRecordWithItems(existing.id, executor)
   }
 

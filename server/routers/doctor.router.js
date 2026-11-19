@@ -56,6 +56,8 @@ router.put('/consultations/:appointmentId/draft', saveConsultationDraft)
 router.post('/consultations/:appointmentId/finalize', finalizeConsultation)
 // Backward-compatible finalization endpoint for older clients.
 router.post('/consultations/:appointmentId', finalizeConsultation)
+router.get('/consultations/:appointmentId/medical-certificate', require('../controllers/medicalCertificates.controller').get)
+router.post('/consultations/:appointmentId/medical-certificate', require('../controllers/medicalCertificates.controller').issue)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)

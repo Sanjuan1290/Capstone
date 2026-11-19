@@ -3,6 +3,7 @@ import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import { MdMedicalServices, MdPayments, MdDiscount, MdReceiptLong } from 'react-icons/md'
 
 const ITEMS = [
+  { label: 'Add-ons', suffix: '/system-setup/billing/addons', icon: MdMedicalServices },
   { label: 'Services & Pricing', suffix: '/system-setup/billing/services', icon: MdMedicalServices },
   { label: 'Payment Methods', suffix: '/system-setup/billing/payment-methods', icon: MdPayments },
   { label: 'Discounts', suffix: '/system-setup/billing/discounts', icon: MdDiscount },

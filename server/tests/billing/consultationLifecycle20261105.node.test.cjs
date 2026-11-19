@@ -29,9 +29,10 @@ function lifecycle(){
   if(sql.includes('FROM billing_service_materials m'))return [catalog.materials]
   if(sql.includes('FROM billing_records WHERE appointment_id'))return [[structuredClone(state.bill)]]
   if(sql.includes('FROM billing_records b'))return [[{...state.bill,promotion_title_snapshot:'Christmas Promo',promotion_selected_for_service_id:77,promotion_discount_amount_snapshot:135,approved_courtesy_discount:state.requests.filter(r=>r.status==='approved').reduce((n,r)=>n+r.requested_amount,0)}]]
+  if(sql.includes("FROM billing_items WHERE billing_id=? AND source_type='service_addon'"))return [structuredClone(state.items.filter(i=>i.source_type==='service_addon'))]
   if(sql.trimStart().startsWith('SELECT')&&sql.includes('FROM billing_items')&&!sql.includes('billing_items bi JOIN'))return [structuredClone(state.items)]
   if(/^SELECT\s+bp\./.test(sql)&&sql.includes('FROM billing_payments bp'))return [[]]
-  if(sql.startsWith('DELETE FROM billing_items')){state.items=[];return [{affectedRows:1}]}
+  if(sql.startsWith('DELETE FROM billing_items')){state.items=sql.includes("source_type <> 'service_addon'")?state.items.filter(i=>i.source_type==='service_addon'):[];return [{affectedRows:1}]}
   if(sql.startsWith('INSERT INTO billing_items')){const keys=['billing_id','catalog_service_id','item_type','source_type','source_reference_id','source_inventory_id','category','service_name','quantity','base_amount','markup_percentage','unit_price','line_total','details_json','notes','sort_order'];state.items.push({id:90+state.items.length,...Object.fromEntries(keys.map((key,i)=>[key,args[i]]))});return [{insertId:90,affectedRows:1}]}
   if(sql.startsWith('UPDATE billing_records')&&sql.includes('SET consultation_id')){Object.assign(state.bill,{consultation_id:args[0],subtotal:args[1],discount_amount:args[2],promotion_discount_amount:args[3],total_amount:args[4]});return [{affectedRows:1}]}
   return financial.query(sql,args)
@@ -63,4 +64,16 @@ for(const decision of ['none','approved','rejected'])test(`complete consultation
  assert.equal(state.consumed[0].quantity,2);assert.equal(state.notifications.length,2)
  if(requestId)await finance.resolve({billingId:6,branchId:1,requestId,adminId:8,actorRole:'admin',status:decision,note:decision==='rejected'?'Not eligible':'Reviewed clinical request'},conn)
  assert.equal(state.bill.total_amount,decision==='approved'?395:415);assert.equal(state.consumed[0].quantity,2)
+})
+
+test('doctor completion preserves a manually confirmed add-on and its original price',async()=>{
+ const {state,finalize}=lifecycle()
+ const addon={id:99,billing_id:6,item_type:'custom',source_type:'service_addon',source_reference_id:12,service_name:'Medical Certificate',quantity:1,unit_price:100,line_total:100,details_json:JSON.stringify({addon_id:6,price_snapshot:100})}
+ state.items.push(addon)
+ let result
+ await finalize({params:{appointmentId:9},branchId:1,user:{id:3},body:{expected_version:1,billable_services:[{catalog_service_id:77,quantity:1,materials:[{inventory_id:7,material_name:'Gauze',quantity:2,unit_label:'unit'}]}]}},{status(){return this},json(value){result=value;return this}})
+ assert.equal(result.billing.subtotal,650);assert.equal(result.billing.total_amount,515)
+ assert.deepEqual(state.items.find(i=>i.source_type==='service_addon'),addon)
+ assert.equal(state.items.filter(i=>i.source_type==='service_addon').length,1)
+ assert.equal(state.consumed[0].quantity,2)
 })

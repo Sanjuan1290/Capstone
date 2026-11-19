@@ -608,7 +608,7 @@ const getHistory = async (req, res) => {
      JOIN doctors d ON a.doctor_id = d.id
      JOIN clinic_branches b ON b.id = a.branch_id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     LEFT JOIN billing_records br ON br.appointment_id = a.id AND br.patient_id = a.patient_id AND br.branch_id = a.branch_id
+     LEFT JOIN billing_records br ON br.appointment_id = a.id AND br.patient_id = a.patient_id AND br.branch_id = a.branch_id AND br.original_bill_id IS NULL
      LEFT JOIN (SELECT billing_id, SUM(CASE WHEN status <> 'voided' AND voided_at IS NULL
        THEN GREATEST(0, amount - COALESCE(refund_amount,0)) ELSE 0 END) AS paid_amount
        FROM billing_payments GROUP BY billing_id) bp ON bp.billing_id = br.id

@@ -710,7 +710,7 @@ const originalServices=async(req,res)=>{
     FROM billing_service_catalog bsc WHERE bsc.branch_id=?${filter} ORDER BY bsc.created_at,bsc.id LIMIT 500`,params)
   // Return saved consumable lines along with total patient price and base fee.
   // The raw catalog query loses materials and makes the Edit screen appear empty.
-  res.json(await hydrateBillingCatalogRows(rows,db))
+  res.json(await hydrateBillingCatalogRows(rows,db,true))
 }
 const originalInventory=async(req,res)=>{
   // The shared Inventory UI requires item.batches[].locations for Stock Out,
@@ -813,6 +813,7 @@ require('./branchAllInventory').registerAllInventory(router,requireSuper)
 
 // Branch-scoped read handlers preserve the original Admin UI response shapes.
 require('./branchBillingSettings').registerBranchBillingSettings(router,{requireSuper,branchContext,requirePermission})
+require('./serviceAddons').registerBranchServiceAddons(router,{requireSuper,branchContext,requirePermission})
 require('./branchOperationalReads').registerBranchOperationalReads(router,{requireSuper,branchContext,requirePermission,allowAnyPermission})
 require('./branchReports').registerBranchReports(router,{requireSuper,branchContext,requirePermission})
 require('./branchAudit').registerBranchAudit(router,{requireSuper,branchContext,requirePermission})

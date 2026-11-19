@@ -814,7 +814,7 @@ const finalizeConsultation = async (req, res) => {
     }
     assertBookedServicePresent(appt, fixedBillableServices)
     // Never consume inventory against a bill that has already entered checkout.
-    const [[existingBill]] = await conn.query('SELECT status FROM billing_records WHERE appointment_id=? AND branch_id=? FOR UPDATE', [appointmentId,req.branchId])
+    const [[existingBill]] = await conn.query('SELECT status FROM billing_records WHERE appointment_id=? AND branch_id=? AND original_bill_id IS NULL FOR UPDATE', [appointmentId,req.branchId])
     if (existingBill && !['draft','pending'].includes(String(existingBill.status))) {
       throw Object.assign(new Error('Billing has already been finalized or sent for payment. Contact Admin for a controlled correction.'), {statusCode:409,code:'BILL_NOT_EDITABLE'})
     }
@@ -908,7 +908,7 @@ const finalizeConsultation = async (req, res) => {
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
 const clinicalChargeAdjustments=async(req,res)=>{
   const [[bill]]=await db.query(`SELECT b.id FROM billing_records b JOIN appointments a ON a.id=b.appointment_id
-    WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=?`,[req.params.appointmentId,req.user.id,req.branchId,req.branchId])
+    WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? AND b.original_bill_id IS NULL`,[req.params.appointmentId,req.user.id,req.branchId,req.branchId])
   if(!bill)return res.status(404).json({message:'No bill found for this consultation.'})
   res.json({...await require('../utils/chargeAdjustments').list(db,bill.id,req.branchId),actor:{role:'doctor',id:req.user.id}})
 }
@@ -917,7 +917,7 @@ const cancelClinicalChargeAdjustment=async(req,res)=>{
   try{
     await conn.beginTransaction()
     const [[bill]]=await conn.query(`SELECT b.id FROM billing_records b JOIN appointments a ON a.id=b.appointment_id
-      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? FOR UPDATE`,[req.params.appointmentId,req.user.id,req.branchId,req.branchId])
+      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? AND b.original_bill_id IS NULL FOR UPDATE`,[req.params.appointmentId,req.user.id,req.branchId,req.branchId])
     if(!bill){await conn.rollback();return res.status(404).json({message:'No bill found for this consultation.'})}
     const result=await require('../utils/chargeAdjustments').cancel({billingId:bill.id,branchId:req.branchId,requestId:Number(req.params.requestId),actorRole:'doctor',actorId:req.user.id},conn)
     await conn.commit();return res.json(result)
@@ -929,7 +929,7 @@ const requestClinicalChargeAdjustment=async(req,res)=>{
     await conn.beginTransaction()
     const [[bill]]=await conn.query(`SELECT b.id,b.branch_id FROM billing_records b
       JOIN appointments a ON a.id=b.appointment_id
-      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? FOR UPDATE`,
+      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? AND b.original_bill_id IS NULL FOR UPDATE`,
       [req.params.appointmentId,req.user.id,req.branchId,req.branchId])
     if(!bill){await conn.rollback();return res.status(404).json({message:'No draft bill found for this consultation.'})}
     const adjustmentId=await require('../utils/chargeAdjustments').request({

@@ -881,7 +881,7 @@ const getBills = async (req, res) => {
 
   const [[countRow]] = await db.query(`SELECT COUNT(*) AS total ${baseJoin} ${whereClause}`, params)
   const [rows] = await db.query(
-    `SELECT b.id, b.appointment_id, b.status, b.subtotal, b.discount_type, b.discount_label, b.discount_amount,
+    `SELECT b.id, b.original_bill_id, b.appointment_id, b.status, b.subtotal, b.discount_type, b.discount_label, b.discount_amount,
             b.total_amount, b.payment_method, b.payment_notes, b.paid_at, b.finalized_at, b.created_at, b.updated_at, b.version,
             COALESCE(pay.paid_amount, 0) AS paid_amount,
             GREATEST(0, b.total_amount - COALESCE(pay.paid_amount, 0)) AS balance_amount,
@@ -1147,18 +1147,18 @@ const updateBill = async (req, res) => {
 
     // Consultation-owned lines are server-owned clinical facts. Checkout never round-trips
     // or mutates them; Staff/Admin may only add non-service charges and billing-level fields.
-    const consultationItems = (currentBill.items || []).filter((item) => ['consultation', 'consultation_extra'].includes(item.source_type))
+    const consultationItems = (currentBill.items || []).filter((item) => ['consultation', 'consultation_extra', 'service_addon'].includes(item.source_type))
     const protectedIds = new Set(consultationItems.map((item) => Number(item.id)))
     const securedConsultationItems = consultationItems.map((existing) => ({
       ...existing,
       id: Number(existing.id),
-      source_type: existing.source_type === 'consultation_extra' ? 'consultation_extra' : 'consultation',
+      source_type: existing.source_type,
       source_reference_id: existing.source_reference_id || currentBill.consultation_id || null,
       unit_price: Number(existing.unit_price || 0),
       line_total: Math.round(Number(existing.quantity || 0) * Number(existing.unit_price || 0) * 100) / 100,
     }))
 
-    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)) && !['consultation', 'consultation_extra'].includes(String(item?.source_type || '')))
+    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)) && !['consultation', 'consultation_extra', 'service_addon'].includes(String(item?.source_type || '')))
     // Checkout may add a catalog service charge without changing clinical records.
     // Actual treatment and item usage must still be documented by the Doctor.
     const doctorServiceIds=new Set(consultationItems.filter(item=>item.item_type==='service').map(item=>Number(item.catalog_service_id)))

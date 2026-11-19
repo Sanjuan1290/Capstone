@@ -1,3 +1,4 @@
+import { listAddons } from '../../services/addons.service'
 import {useAuth} from '../../context/AuthContext'
 import { useEffect, useMemo, useState } from 'react'
 import { portalBaseForPath, canManageServicePricingAtPath } from '../../utils/branchPortalPath.mjs'
@@ -15,9 +16,10 @@ const blankMaterial = () => ({ inventory_id: '', material_name: '', quantity: 1,
 const DURATION_OPTIONS = Array.from({ length: 16 }, (_, index) => (index + 1) * 30)
 const formatDuration = (minutes) => { const total = Number(minutes || 0); const hours = Math.floor(total / 60); const mins = total % 60; if (!hours) return `${mins} minutes`; if (!mins) return `${hours} hour${hours === 1 ? '' : 's'}`; return `${hours} hour${hours === 1 ? '' : 's'} ${mins} minutes` }
 const reservedDuration = (minutes) => Math.ceil(Math.max(15, Number(minutes || 60)) / 30) * 30
-const blank = { doctor_fee_percentage: 0, category_id: '', category: '', service_name: '', clinic_type: 'medical', default_price: '', average_duration_minutes: 60, is_active: 1, materials: [] }
+const blank = { doctor_fee_percentage: 0, category_id: '', category: '', service_name: '', clinic_type: 'medical', default_price: '', average_duration_minutes: 60, is_active: 1, materials: [], addons: [] }
 const clinicLabel = (value) => CLINIC_TYPES.find((item) => item.value === value)?.label || value
 const toForm = (service) => ({
+  addons: (service?.addons || []).map(a=>({addon_id:Number(a.addon_id),price_override:a.price_override??''})),
   doctor_fee_percentage: Number(service?.doctor_fee_percentage || 0),
   category_id: service?.category_id || '', category: service?.category || '', service_name: service?.service_name || '',
   clinic_type: ['medical','derma'].includes(service?.clinic_type) ? service.clinic_type : 'medical',
@@ -43,6 +45,7 @@ const Admin_BillingServiceForm = () => {
   const requestedClinic = ['medical', 'derma'].includes(searchParams.get('clinic')) ? searchParams.get('clinic') : 'medical'
   const toast = useToast()
   const [form, setForm] = useState(() => ({ ...blank, clinic_type: requestedClinic }))
+  const [addons,setAddons]=useState([])
   const [inventory, setInventory] = useState([])
   const [serviceCategories, setServiceCategories] = useState([])
   const [loading, setLoading] = useState(true)
@@ -74,7 +77,8 @@ const Admin_BillingServiceForm = () => {
   useEffect(() => { (async () => {
     setLoading(true)
     try {
-      const [items, setup, catalog] = await Promise.all([getInventory(), getSystemSetup(), editing ? getBillingCatalog({ includeInactive: true }) : Promise.resolve([])])
+      const [items, setup, catalog, addonCatalog] = await Promise.all([getInventory(), getSystemSetup(), editing ? getBillingCatalog({ includeInactive: true }) : Promise.resolve([]),listAddons()])
+      setAddons(addonCatalog)
       setInventory((Array.isArray(items) ? items : []).filter((item) => !item.archived_at))
       const categories = Array.isArray(setup?.service_categories) ? setup.service_categories : []
       setServiceCategories(categories)
@@ -119,6 +123,7 @@ const Admin_BillingServiceForm = () => {
   const openCategorySetup = () => { if (dirty && !window.confirm('You have unsaved service changes. Leave this page and manage Service Categories?')) return; navigate(`${portalBase}/system-setup?tab=service_categories`) }
 
   const payload = () => ({
+    addons: form.addons.map(a=>({addon_id:Number(a.addon_id),price_override:a.price_override===''?null:Number(a.price_override)})),
     category_id: Number(form.category_id) || null, category: String(form.category || '').trim(), service_name: String(form.service_name || '').trim(), clinic_type: form.clinic_type,
     // consultation_fee stores the base Service Price; default_price stores the final patient price.
     ...(canEditDoctorFee ? {doctor_fee_percentage:Number(form.doctor_fee_percentage || 0)} : {}),
@@ -145,6 +150,7 @@ const Admin_BillingServiceForm = () => {
       if (!(Number(m.quantity) > 0) || !Number.isInteger(Number(m.quantity))) next[`qty_${i}`] = 'Quantity must be a whole number greater than zero.'
       if (m.inventory_id && isSelectableServiceConsumable(item) && !(Number(item?.selling_price || 0) > 0)) next[`price_${i}`] = 'Set a Selling Price for this inventory item before using it as a consumable.'
     })
+    form.addons.forEach(a=>{if(a.price_override!==''&&(!Number.isFinite(Number(a.price_override))||Number(a.price_override)<0||Number(a.price_override)>99999999.99||Math.round(Number(a.price_override)*100)/100!==Number(a.price_override)))next.addons='Enter valid add-on prices with at most two decimals.'})
     setErrors(next); return Object.keys(next).length === 0
   }
   const move = (next) => { if (next > step && !validate(step)) { toast.warning('Check the highlighted fields before continuing.'); return } setStep(next); window.scrollTo({ top: 0, behavior: 'smooth' }) }
@@ -192,6 +198,7 @@ const Admin_BillingServiceForm = () => {
         <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Service Price</p><p className="mt-1 font-black text-amber-950">{formatMoney(servicePrice)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Items Used</p><p className="mt-1 font-black text-amber-950">{formatMoney(consumablesTotal)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Total Patient Price</p><p className="mt-1 text-lg font-black text-amber-950">{formatMoney(patientPrice)}</p></div></div>
       </div>}
 
+      {step !== 1 && <section className="space-y-3 rounded-2xl border border-slate-200 p-5"><h2 className="text-lg font-black">Add-ons</h2><p className="text-sm text-slate-500">Available for manual billing selection. Leave the price blank to use the default. Enter 0 for a free or included add-on.</p>{errors.addons&&<p className="form-error">{errors.addons}</p>}{addons.map(addon=>{const attached=form.addons.find(a=>Number(a.addon_id)===Number(addon.id));return <div key={addon.id} className="flex flex-wrap items-center gap-3"><label className="flex flex-1 items-center gap-2"><input type="checkbox" checked={Boolean(attached)} onChange={e=>update('addons',e.target.checked?[...form.addons,{addon_id:addon.id,price_override:''}]:form.addons.filter(a=>Number(a.addon_id)!==Number(addon.id)))}/>{addon.name} · Default {formatMoney(addon.default_price)}{!Number(addon.is_active)&&' (inactive)'}</label>{attached&&<label className="text-sm">Service price (₱)<input aria-label={`${addon.name} service price override`} type="number" min="0" step="0.01" className="form-control" placeholder="Use default" value={attached.price_override} onChange={e=>update('addons',form.addons.map(a=>Number(a.addon_id)===Number(addon.id)?{...a,price_override:e.target.value}:a))}/></label>}</div>})}{!addons.length&&<p className="text-sm text-slate-500">Create reusable items in Services &amp; Pricing Setup → Add-ons.</p>}</section>}
       <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm"><p className="font-bold">Doctor's Fee (Included in Subtotal)</p><p className="mt-1">{Number(form.doctor_fee_percentage||0)}% of {formatMoney(patientPrice)} = {formatMoney(Math.round(patientPrice*Number(form.doctor_fee_percentage||0))/100)}</p><p className="mt-1 text-slate-600">Patient subtotal remains {formatMoney(patientPrice)}.</p></div>
       {step === 3 && <div className="space-y-4"><div><h2 className="text-lg font-black">Review Service</h2><p className="mt-1 text-sm text-slate-500">Confirm the service fee, item prices, and patient total.</p></div><div className="rounded-2xl border border-slate-200 p-5"><h3 className="text-xl font-black">{form.service_name||'Unnamed Service'}</h3><p className="mt-1 text-sm text-slate-500">{form.category||'No category'} · {clinicLabel(form.clinic_type)} · {formatDuration(Number(form.average_duration_minutes || 60))} appointment length · {formatDuration(reservedDuration(form.average_duration_minutes))} reserved for booking · {Number(form.is_active)===1?'Active':'Inactive'}</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Service Price</p><p className="mt-2 text-xl font-black text-slate-900">{formatMoney(servicePrice)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Items Used</p><p className="mt-2 text-xl font-black text-slate-900">{formatMoney(consumablesTotal)}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs font-bold uppercase text-amber-700">Total Patient Price</p><p className="mt-2 text-2xl font-black text-amber-900">{formatMoney(patientPrice)}</p></div></div></div><div className="rounded-2xl border border-slate-200 p-5"><div className="flex items-center justify-between"><strong>Default Items</strong><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold">{form.materials.length}</span></div>{form.materials.length?<div className="mt-3 divide-y divide-slate-100">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id));const validItem=isSelectableServiceConsumable(item);const unitPrice=validItem?Number(item?.selling_price||0):0;const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0));return <div key={index} className="grid gap-1 py-3 text-sm sm:grid-cols-[1fr_auto]"><div><p className="font-semibold text-slate-800">{m.material_name||item?.name}</p><p className="text-xs text-slate-400">{m.quantity} unit{Number(m.quantity)===1?'':'s'} × {formatMoney(unitPrice)}</p></div><span className="font-bold text-slate-700">{formatMoney(lineTotal)}</span></div>})}</div>:<p className="mt-3 text-sm text-slate-500">No default items.</p>}</div><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><MdCheck className="mr-1 inline" /> Patient Total = Service Fee + Item Prices. Final stock changes follow the clinic billing workflow.</div></div>}
     </section>

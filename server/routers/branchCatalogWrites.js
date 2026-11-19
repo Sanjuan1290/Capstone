@@ -74,6 +74,7 @@ async function saveService(req,res){
   await conn.query('UPDATE billing_service_catalog SET doctor_fee_percentage=? WHERE id=? AND branch_id=?',[doctorFee,serviceId,req.branchId])
   await conn.query(`DELETE m FROM billing_service_materials m JOIN billing_service_catalog s ON s.id=m.billing_service_id WHERE m.billing_service_id=? AND s.branch_id=?`,[serviceId,req.branchId])
   for(const m of p.materials)await conn.query(`INSERT INTO billing_service_materials (billing_service_id,inventory_id,material_name,quantity,unit_label,unit_cost_override,notes,sort_order) VALUES (?,?,?,?,?,?,?,?)`,[serviceId,m.inventory_id,m.material_name,m.quantity,m.unit_label,m.unit_cost_override,m.notes,m.sort_order])
+  if(req.body.addons!==undefined) await require('../utils/serviceAddons').saveServiceAddons(conn,req.branchId,serviceId,req.body.addons)
   await audit(req,conn,id?'catalog.service_updated':'catalog.service_created','billing_service',serviceId,before,{...p,default_price:total})
   // getBillingCatalogServiceById queries the global catalog by stable unique id;
   // ensure the branch-owned write and audit committed before external hydration.
@@ -94,6 +95,7 @@ async function deleteService(req,res){
    await audit(req,conn,'catalog.service_archived','billing_service',before.id,before,{is_active:0})
    return {body:{archived:true,deleted:false,deactivated:true,message:'Service deactivated. Appointment, billing, and promotion history is preserved.'}}
   }
+  await conn.query('DELETE FROM billing_service_addons WHERE service_id=? AND branch_id=?',[before.id,req.branchId])
   await conn.query('DELETE FROM billing_service_materials WHERE billing_service_id=?',[before.id])
   await conn.query('DELETE FROM billing_service_catalog WHERE id=? AND branch_id=?',[before.id,req.branchId])
   await audit(req,conn,'catalog.service_deleted','billing_service',before.id,before,null)

@@ -1,4 +1,5 @@
 import FinancialBillBreakdown from '../../components/billing/FinancialBillBreakdown'
+import AddAddonCharge from '../../components/billing/AddAddonCharge'
 import ChargeSummaryBreakdown from '../../components/billing/ChargeSummaryBreakdown'
 import {useAuth} from '../../context/AuthContext'
 import {paymentRequestKey} from '../../utils/paymentRequest.mjs'
@@ -85,7 +86,7 @@ const normalizeBill = (bill) => ({
   })) : [],
 })
 
-const isProtectedConsultationLine = (item) => ['consultation', 'consultation_extra'].includes(String(item?.source_type || ''))
+const isProtectedConsultationLine = (item) => ['consultation', 'consultation_extra', 'service_addon'].includes(String(item?.source_type || ''))
 
 const serializeItems = (items = []) => items.filter((item) => !isProtectedConsultationLine(item)).map((item, index) => ({
   id: item.id || null,
@@ -156,7 +157,7 @@ const Staff_CheckoutDetail = () => {
   const inventoryMap = useMemo(() => new Map(inventory.map((item) => [Number(item.id), item])), [inventory])
   const totals = totalsFor(draft,dirty)
   const paymentAmount = Number(bill?.balance_amount || 0)
-  const zeroPriceItems = (draft?.items || []).filter((item) => Number(item.unit_price || 0) <= 0)
+  const zeroPriceItems = (draft?.items || []).filter((item) => item.source_type !== 'service_addon' && Number(item.unit_price || 0) <= 0)
   const directCheckoutSupplyCount = (draft?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id || 0) > 0).length
   const paymentMethods = enabledPaymentMethods(paymentSettings)
   const selectedDiscount = discounts.find((item) => Number(item.id) === Number(selectedDiscountId)) || null
@@ -469,9 +470,9 @@ const Staff_CheckoutDetail = () => {
     if (invalidQuantity) return 'Every added charge must have a quantity greater than zero.'
     const invalidService = workingDraft.items.find(item=>item.source_type==='staff_service' && (!item.catalog_service_id || String(item.notes||'').trim().length<5))
     if(invalidService)return 'Choose a clinic service and enter a short reason (at least 5 characters) for adding it to the bill.'
-    const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
+    const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !isProtectedConsultationLine(item) && !String(item.notes || '').trim())
     if (invalidCustom) return 'Every custom charge needs a reason or note before continuing.'
-    const zeroPriceCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !(Number(item.unit_price) > 0))
+    const zeroPriceCustom = workingDraft.items.find((item) => item.item_type === 'custom' && item.source_type !== 'service_addon' && !(Number(item.unit_price) > 0))
     if (zeroPriceCustom) return 'Every custom charge must have a price greater than ₱0.00.'
     const longDescription = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && String(item.service_name || '').trim().length > 180)
     if (longDescription) return 'Charge descriptions must be 180 characters or fewer.'
@@ -688,7 +689,7 @@ const Staff_CheckoutDetail = () => {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><h2 className="font-black text-slate-900">2. Bill Charges</h2><p className="mt-1 text-sm text-slate-500">Doctor-recorded clinical services are locked. Staff can add inventory items, a service charge, or a custom charge. Doctor-recorded care stays unchanged.</p></div>
-              <button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
+              <AddAddonCharge key={bill.id} bill={bill} dirty={dirty} onAdded={()=>load({preserveStep:true})}/><button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
             </div>
 
             <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount||0} />
@@ -704,18 +705,18 @@ const Staff_CheckoutDetail = () => {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
-                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
+                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'service_addon' ? 'Confirmed Add-on' : item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
                         </div>
-                        {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                        {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'service_addon' ? 'Manually confirmed add-on. Its saved name, quantity and price are read-only.' : item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
                         {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
-                        {protectedLine && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
+                        {protectedLine && item.source_type !== 'service_addon' && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
                       </div>
                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
                     </div>
 
                     {protectedLine ? (
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
-                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                        <div><span className="form-label">{item.source_type === 'service_addon' ? 'Confirmed Add-on' : item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
                         <div><span className="form-label">{item.item_type === 'service' ? 'Service Price' : 'Item Price'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
                       </div>

@@ -52,7 +52,7 @@ const ownAssignedDoctor = async (req,res,next) => {
   if(!row)return res.status(404).json({message:'Doctor not assigned to this branch.'})
   next()
 }
-const readBranchServices=async(req,res)=>res.json(await listBillingCatalog({branchId:req.branchId,clinicType:String(req.query.clinic_type||'').trim()||undefined,includeInactive:String(req.query.include_inactive||'')==='1'}))
+const readBranchServices=async(req,res)=>res.json(await listBillingCatalog({includeAddons:true,branchId:req.branchId,clinicType:String(req.query.clinic_type||'').trim()||undefined,includeInactive:String(req.query.include_inactive||'')==='1'}))
 const readBranchDiscounts=async(req,res)=>{const [rows]=await db.query('SELECT * FROM discount_presets WHERE branch_id=? ORDER BY created_at,id',[req.branchId]);res.json(rows)}
 const readBranchPaymentSettings=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})}
 const readBranchBrand=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})}
@@ -143,6 +143,11 @@ router.get('/patients/directory', ...auth, can('patient_records'), async(req,res
 router.get('/patients/:id', ...auth, can('patient_records'), staffCtrl.getPatientRecord)
 
 // ── Checkout / Billing ───────────────────────────────────────────────────────
+router.get('/admin-access/billing/addons', ...auth, can('system_setup'), require('../utils/serviceAddons').list)
+router.post('/admin-access/billing/addons', ...auth, can('system_setup'), require('../utils/serviceAddons').save)
+router.put('/admin-access/billing/addons/:addonId', ...auth, can('system_setup'), require('../utils/serviceAddons').save)
+router.get('/billing/:id/addons', ...auth, can('checkout'), ownBill, require('../utils/serviceAddons').options)
+router.post('/billing/:id/addons', ...auth, can('checkout'), ownBill, require('../utils/serviceAddons').confirm)
 router.get('/billing', ...auth, canAny('checkout', 'billing'), staffCtrl.getBills)
 router.get('/billing/catalog', ...auth, can('checkout'), staffCtrl.getBillingCatalogForStaff)
 router.get('/billing/discount-presets', ...auth, can('checkout'), staffCtrl.getDiscountPresets)

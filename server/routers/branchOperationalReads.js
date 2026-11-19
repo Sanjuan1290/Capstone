@@ -50,7 +50,7 @@ async function readBills(req,res) {
   const joins=`FROM billing_records b
      JOIN appointments a ON a.id=b.appointment_id AND a.branch_id=b.branch_id
      JOIN patients p ON p.id=b.patient_id
-     JOIN doctors d ON d.id=b.doctor_id AND d.branch_id=b.branch_id
+     JOIN doctors d ON d.id=b.doctor_id
      LEFT JOIN (SELECT latest.billing_id,latest.branch_id,latest.status AS latest_gateway_status,latest.error_code AS latest_gateway_error_code
        FROM payment_gateway_attempts latest
        JOIN (SELECT billing_id,MAX(id) AS latest_id FROM payment_gateway_attempts GROUP BY billing_id) last_attempt ON last_attempt.latest_id=latest.id
@@ -59,7 +59,7 @@ async function readBills(req,res) {
          GROUP_CONCAT(DISTINCT CASE WHEN status='completed' THEN payment_method END SEPARATOR ',') AS payment_methods
        FROM billing_payments GROUP BY billing_id) pay ON pay.billing_id=b.id`
   const [[count]]=await db.query(`SELECT COUNT(*) AS total ${joins} ${where}`,args)
-  const [rows]=await db.query(`SELECT b.id,b.appointment_id,b.status,b.version,b.subtotal,b.total_amount,b.discount_amount,b.discount_type,b.discount_label,b.payment_method,b.created_at,b.updated_at,b.finalized_at,
+  const [rows]=await db.query(`SELECT b.id,b.original_bill_id,b.appointment_id,b.status,b.version,b.subtotal,b.total_amount,b.discount_amount,b.discount_type,b.discount_label,b.payment_method,b.created_at,b.updated_at,b.finalized_at,
      COALESCE(pay.paid_amount,0) AS paid_amount,GREATEST(0,b.total_amount-COALESCE(pay.paid_amount,0)) AS balance_amount,COALESCE(pay.payment_methods,'') AS payment_methods,
      gateway.latest_gateway_status,gateway.latest_gateway_error_code,
      DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,a.reason AS appointment_reason,a.clinic_type,a.appointment_source,

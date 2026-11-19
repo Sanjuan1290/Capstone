@@ -111,7 +111,7 @@ export default function BillingWorkspace({ role = 'admin' }) {
             return <article key={bill.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 hover:bg-slate-50 sm:px-5">
               <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{bill.patient_name || 'Patient'}</strong><BillingStatusBadge status={bill.status}/>{status === 'failed' && <span className="rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">Payment failed</span>}</div>
                 <p className="mt-1 text-xs text-slate-500">Bill #{bill.id} · {bill.doctor_name || 'Doctor'} · {bill.appointment_date || '—'}</p>
-                <p className="mt-1 text-sm text-slate-600">{bill.appointment_reason || 'Clinic consultation'}</p>
+                <p className="mt-1 text-sm text-slate-600">{bill.original_bill_id ? `Add-on charge · Original Bill #${bill.original_bill_id}` : bill.appointment_reason || 'Clinic consultation'}</p>
                 {status === 'failed' && section === 'payments' && <p className="mt-2 max-w-lg text-xs text-rose-700">{failure(bill)}</p>}
                 {settled(bill) && <p className="mt-1 text-xs text-slate-500">{(Array.isArray(bill.payment_methods) ? bill.payment_methods : []).map(paymentMethodLabel).join(', ')}</p>}
               </div>

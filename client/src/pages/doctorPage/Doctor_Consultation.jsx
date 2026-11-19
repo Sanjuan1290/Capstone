@@ -1,3 +1,4 @@
+import MedicalCertificate from '../../components/consultation/MedicalCertificate'
 import RecommendedFollowupEditor from '../../components/consultation/RecommendedFollowupEditor'
 import { updateRecommendedFollowup } from '../../services/doctor.service'
 import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
@@ -1061,6 +1062,7 @@ const Doctor_Consultation = () => {
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">{date}</p>
           </div>
+          {appt?.id && <MedicalCertificate key={appt.id} appointmentId={appt.id} diagnosis={diagnosis}/>}
           {consultationStatus === 'finalized' && <button
             onClick={() => document.getElementById('consultation-amendments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-violet-700 border border-violet-200 bg-violet-50 rounded-xl hover:bg-violet-100 transition-colors"

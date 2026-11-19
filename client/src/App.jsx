@@ -71,6 +71,7 @@ import Admin_PatientBooking  from './pages/adminPage/Admin_PatientBooking'
 import Admin_BillingCatalog  from './pages/adminPage/Admin_BillingCatalog'
 import Admin_Billing         from './pages/adminPage/Admin_Billing'
 import BillHistoryDetail from './components/billing/BillHistoryDetail'
+import Admin_BillingAddons from './pages/adminPage/Admin_BillingAddons'
 import Admin_CheckoutDetail  from './pages/adminPage/Admin_CheckoutDetail'
 import Admin_BillingPaymentMethods from './pages/adminPage/Admin_BillingPaymentMethods'
 import Admin_BillingDiscounts from './pages/adminPage/Admin_BillingDiscounts'
@@ -181,6 +182,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='system-setup' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetup /></StaffPermissionRoute>} />
         <Route path='system-setup/billing' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetupBilling /></StaffPermissionRoute>}>
           <Route index element={<Navigate to='services' replace />} />
+          <Route path='addons' element={<Admin_BillingAddons />} />
           <Route path='services' element={<Admin_BillingCatalog />} />
           <Route path='services/new' element={<Admin_BillingServiceForm />} />
           <Route path='services/:serviceId/edit' element={<Admin_BillingServiceForm />} />
@@ -263,6 +265,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='announcements' element={<Admin_Announcements />} />
         <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
           <Route index element={<Navigate to='services' replace />} />
+          <Route path='addons' element={<Admin_BillingAddons />} />
           <Route path='services' element={<Admin_BillingCatalog />} />
           <Route path='services/new' element={<Admin_BillingServiceForm />} />
           <Route path='services/:serviceId/edit' element={<Admin_BillingServiceForm />} />
@@ -301,6 +304,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='announcements' element={<Admin_Announcements />} />
         <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
           <Route index element={<Navigate to='services' replace />} />
+          <Route path='addons' element={<Admin_BillingAddons />} />
           <Route path='services' element={<Admin_BillingCatalog />} />
           <Route path='services/new' element={<Admin_BillingServiceForm />} />
           <Route path='services/:serviceId/edit' element={<Admin_BillingServiceForm />} />

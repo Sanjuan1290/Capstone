@@ -10,7 +10,7 @@ function hydrateFromRows(serviceRows,materialRows){
   return module.exports.hydrateBillingCatalogRows(serviceRows,{query:async(statement,params)=>{sql.push({statement,params});return [materialRows]}}).then(rows=>({rows,sql}))
 }
 test('branch catalog hydrates saved consumables rather than sending raw rows',()=>{
- assert.match(branches,/hydrateBillingCatalogRows\(rows,db\)/)
+ assert.match(branches,/hydrateBillingCatalogRows\(rows,db,true\)/)
  assert.match(branches,/bsc\.branch_id=\?/)
 })
 test('base service price and final patient price remain separate',async()=>{

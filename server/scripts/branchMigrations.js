@@ -79,6 +79,7 @@ const migrationFiles = [
   '2026-11-14-branch-tax-policy.sql',
   '2026-11-14-simplify-tax-settings.sql',
   '2026-11-17-consultation-followup-calendar.sql',
+  '2026-11-19-service-addons-certificates.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -187,6 +188,8 @@ async function runRegisteredBranchMigrations(db) {
         await ensureStatutoryCategoryColumn(connection,true)
         for(const statement of statements.slice(1))await connection.query(statement)
         await validateStoredTaxSettings(connection,{simpleOnly:true})
+      } else if (file === '2026-11-19-service-addons-certificates.sql') {
+        await require('./serviceAddonsMigration').runServiceAddonsMigration(connection,statements)
       } else if (file === promotionMigrationFile) {
         // Metadata-checked, resumable per-table DDL. Never mark an incomplete schema as applied.
         await runSelectedPromotionMigration(connection, statements)

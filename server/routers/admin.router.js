@@ -108,6 +108,11 @@ router.put('/doctors/:id/unavailable-dates', ...auth, adminCtrl.saveDoctorUnavai
 router.delete('/doctors/:id/unavailable-dates/:date', ...auth, adminCtrl.deleteDoctorUnavailableDateAdmin)
 
 // ── Reports ───────────────────────────────────────────────────────────────────
+router.get('/billing/addons', ...auth, require('../utils/serviceAddons').list)
+router.post('/billing/addons', ...auth, require('../utils/serviceAddons').save)
+router.put('/billing/addons/:addonId', ...auth, require('../utils/serviceAddons').save)
+router.get('/billing/:id/addons', ...auth, require('../utils/serviceAddons').options)
+router.post('/billing/:id/addons', ...auth, require('../utils/serviceAddons').confirm)
 router.get('/billing', ...auth, staffCtrl.getBills)
 router.get('/billing/reconciliation', ...auth, adminCtrl.getBillingReconciliation)
 router.get('/billing/cashier-closing', ...auth, correctionsCtrl.getMyCashierClosing)

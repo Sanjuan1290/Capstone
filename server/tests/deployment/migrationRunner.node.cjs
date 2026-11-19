@@ -43,6 +43,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   const feeColumns = new Map(initialDoctorFee ? [['doctor_fee_percentage', initialDoctorFee]] : [])
   const statutoryColumns = new Map(initialStatutoryCategory ? [['statutory_category',initialStatutoryCategory]] : [])
   const calendarColumns = new Map()
+  const addonsSchema=require('../helpers/serviceAddonsSchemaFixture.cjs').serviceAddonsSchemaFixture()
   const reversalMetadata = (sql, params) => {
     if (/information_schema\.COLUMNS/i.test(sql) && ['consultations','consultation_followups','consultation_followup_revisions','appointment_followup_links'].includes(params?.[0])) return [calendarColumns.has(params[0]+'.'+params[1]) ? [calendarColumns.get(params[0]+'.'+params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'discount_presets' && params[1] === 'statutory_category') return [statutoryColumns.has(params[1]) ? [statutoryColumns.get(params[1])] : []]
@@ -103,7 +104,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
       async beginTransaction() {},
       async query(sql, params = []) {
         commands.push(String(sql))
-        const fixtureResult = (sql === 'SHOW INDEX FROM queue' ? await queueSchema.query(sql) : null) || reversalMetadata(sql, params) || promotionMetadata(sql, params) || await foundation.db.query(sql, params)
+        const fixtureResult = addonsSchema.query(sql,params) || (sql === 'SHOW INDEX FROM queue' ? await queueSchema.query(sql) : null) || reversalMetadata(sql, params) || promotionMetadata(sql, params) || await foundation.db.query(sql, params)
         if (/SELECT\s+lock_name.+FOR UPDATE/i.test(sql)) {
           await acquireLock()
           holdsLock = true
@@ -163,7 +164,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
         const hash = applied.get(params[0])
         return hash ? [[{ content_sha256: hash }]] : [[]]
       }
-      return (await queueSchema.query(sql)) || reversalMetadata(sql, params) || promotionMetadata(sql, params) || foundation.db.query(sql, params)
+      return addonsSchema.query(sql,params) || (await queueSchema.query(sql)) || reversalMetadata(sql, params) || promotionMetadata(sql, params) || foundation.db.query(sql, params)
     },
     async getConnection() { return connection() },
   }
@@ -173,7 +174,7 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-  assert.deepEqual(migrationFiles.slice(-5),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql','2026-11-14-simplify-tax-settings.sql','2026-11-17-consultation-followup-calendar.sql'])
+  assert.deepEqual(migrationFiles.slice(-6),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql','2026-11-14-simplify-tax-settings.sql','2026-11-17-consultation-followup-calendar.sql','2026-11-19-service-addons-certificates.sql'])
   const historicalTail = ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql']
   assert.deepEqual(migrationFiles.filter(file => historicalTail.includes(file)), historicalTail)
   const historicalFiles=migrationFiles.filter(file=>file<'2026-11-14-')
@@ -341,10 +342,10 @@ test('Batch 4 registration is additive, ordered, and does not repeat DDL on a cl
   assert.equal(db.promotionState.appointments, true)
   assert.equal(db.promotionState.billing_records, true)
   assert.deepEqual([...db.applied.keys()], migrationFiles)
-  const ddlCount = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length
+  const ddlCount = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql) && !/original_bill_id|charge_key|DROP INDEX uniq_billing_records/.test(sql)).length
   assert.equal(ddlCount, 4)
   await runBranchMigrations(db)
-  assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, ddlCount)
+  assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql) && !/original_bill_id|charge_key|DROP INDEX uniq_billing_records/.test(sql)).length, ddlCount)
 })
 
 test('Batch 4 resumes after the first ALTER committed but the second failed', async () => {
@@ -363,7 +364,7 @@ test('Batch 4 records an already complete but unregistered schema without re-run
   const db = createMockDb({ initialPromotionState: { appointments: true, billing_records: true } })
   await runBranchMigrations(db)
   assert.deepEqual([...db.applied.keys()], migrationFiles)
-  assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, 0)
+  assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql) && !/original_bill_id|charge_key|DROP INDEX uniq_billing_records/.test(sql)).length, 0)
 })
 
 test('Batch 4 detects schema drift after ledger registration and never silently repairs it', async () => {
@@ -385,7 +386,7 @@ test('Batch 4 rejects unexpected partly-added columns without applying new DDL o
   const db = createMockDb({ initialPromotionState: { appointments: 'partial' } })
   await assert.rejects(runBranchMigrations(db), /Unsafe partial Batch 4 migration for appointments/)
   assert.equal(db.applied.has(batch4MigrationFile), false)
-  assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, 0)
+  assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql) && !/original_bill_id|charge_key|DROP INDEX uniq_billing_records/.test(sql)).length, 0)
 })
 
 for (const operation of ['ADD INDEX', 'ADD CONSTRAINT']) {
@@ -404,7 +405,7 @@ for (const operation of ['ADD INDEX', 'ADD CONSTRAINT']) {
 test('Batch 4 recovers manually applied complete columns while adding only the missing TiDB index and FK', async () => {
   const db = createMockDb({ initialPromotionState: { appointments: true, billing_records: true }, initialPromotionIndex: false, initialPromotionFk: false })
   await runBranchMigrations(db)
-  const ddl = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql))
+  const ddl = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql) && !/original_bill_id|charge_key|DROP INDEX uniq_billing_records/.test(sql))
   assert.equal(ddl.length, 2)
   assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
   assert.equal(db.applied.has(batch4MigrationFile), true)
