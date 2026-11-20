@@ -134,7 +134,7 @@ test('setup creates a reusable free add-on and saves multiple service attachment
  await page.goto('/admin/system-setup/billing/services/5/edit')
  await page.getByRole('button',{name:'Continue',exact:true}).click()
  await page.getByRole('spinbutton',{name:'Medical Certificate service price override'}).fill('75')
- await page.getByRole('checkbox',{name:/Travel Note/}).check()
+ await page.getByRole('switch',{name:'Enable Travel Note',exact:true}).click()
  await page.getByRole('button',{name:'Continue',exact:true}).click()
  await page.getByRole('button',{name:'Save Changes',exact:true}).click()
  await expect(page).toHaveURL(/\/system-setup\/billing\/services$/)
